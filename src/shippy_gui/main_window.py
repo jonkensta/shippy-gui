@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
 
         # Create and add tabs
         self.shipping_tab = ShippingTab(config_path=self.config_path)
-        self.bulk_tab = BulkTab()
+        self.bulk_tab = BulkTab(config_path=self.config_path)
 
         self.tab_widget.addTab(self.shipping_tab, "Shipping")
         self.tab_widget.addTab(self.bulk_tab, "Bulk")
