@@ -172,15 +172,23 @@ def _print_image_linux(img: Image.Image, printer_name: str) -> None:
         img: PIL Image to print
         printer_name: Name of the printer to use
     """
+    # Auto-rotate if landscape
+    if img.size[0] > img.size[1]:
+        img = img.rotate(90, expand=True)
+
+    # Try to get printer paper size and scale image appropriately
+    scaled_img = _scale_image_for_printer_linux(img, printer_name)
+
     # Save to temp file and print with lp command
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
         try:
-            img.save(tmpfile.name)
+            scaled_img.save(tmpfile.name)
             tmpfile.close()
 
             # Use lp command to print
+            # -o fit-to-page ensures it fits on the page
             result = subprocess.run(
-                ["lp", "-d", printer_name, tmpfile.name],
+                ["lp", "-d", printer_name, "-o", "fit-to-page", tmpfile.name],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -192,6 +200,72 @@ def _print_image_linux(img: Image.Image, printer_name: str) -> None:
         finally:
             import os
             os.remove(tmpfile.name)
+
+
+def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image.Image:
+    """Scale image to fit printer's printable area.
+
+    Args:
+        img: PIL Image to scale
+        printer_name: Name of the printer
+
+    Returns:
+        Scaled image, or original if scaling info unavailable
+    """
+    try:
+        import cups
+
+        conn = cups.Connection()
+        printers = conn.getPrinters()
+
+        if printer_name not in printers:
+            # Printer not found, return original
+            return img
+
+        # Get printer attributes
+        printer_attrs = printers[printer_name]
+
+        # Try to get page size from printer
+        # CUPS uses points (1/72 inch) for dimensions
+        # Common sizes: Letter = 612x792 pts, Legal = 612x1008 pts
+        ppd_name = printer_attrs.get("printer-make-and-model", "")
+
+        # Get default media size
+        # This is a simplified approach - full PPD parsing would be more accurate
+        # Default to letter size (8.5" x 11" = 612 x 792 points)
+        page_width_pts = 612
+        page_height_pts = 792
+
+        # Assume 0.25" margins on all sides (18 points)
+        margin_pts = 18
+        printable_width_pts = page_width_pts - (2 * margin_pts)
+        printable_height_pts = page_height_pts - (2 * margin_pts)
+
+        # Convert points to pixels assuming 300 DPI
+        # 1 point = 1/72 inch, so points * DPI / 72 = pixels
+        dpi = 300
+        printable_width_px = int(printable_width_pts * dpi / 72)
+        printable_height_px = int(printable_height_pts * dpi / 72)
+
+        # Calculate scaling (similar to Windows approach)
+        ratios = [printable_width_px / img.size[0], printable_height_px / img.size[1]]
+        scale = 0.95 * min(ratios)  # 95% to avoid clipping
+
+        # Scale the image
+        new_width = int(img.size[0] * scale)
+        new_height = int(img.size[1] * scale)
+
+        if new_width > 0 and new_height > 0:
+            return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+    except ImportError:
+        # pycups not available, return original and let lp handle it
+        pass
+    except Exception:
+        # Any error in scaling, return original
+        pass
+
+    return img
 
 
 def _print_image_windows(img: Image.Image, printer_name: str) -> None:
