@@ -1,0 +1,73 @@
+"""Main window for shippy-gui application."""
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
+from PySide6.QtGui import QAction
+
+from shippy_gui.tabs.bulk_tab import BulkTab
+from shippy_gui.tabs.individual_tab import IndividualTab
+from shippy_gui.tabs.manual_tab import ManualTab
+
+
+class MainWindow(QMainWindow):
+    """Main application window with tabbed interface."""
+
+    def __init__(self):
+        """Initialize the main window."""
+        super().__init__()
+        self._init_ui()
+
+    def _init_ui(self):
+        """Initialize the user interface."""
+        self.setWindowTitle("Shippy GUI - IBP Shipping Label Generator")
+        self.setMinimumSize(800, 600)
+
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
+
+        # Create and add tabs
+        self.individual_tab = IndividualTab()
+        self.manual_tab = ManualTab()
+        self.bulk_tab = BulkTab()
+
+        self.tab_widget.addTab(self.individual_tab, "Individual")
+        self.tab_widget.addTab(self.manual_tab, "Manual")
+        self.tab_widget.addTab(self.bulk_tab, "Bulk")
+
+        # Set tab widget as central widget
+        self.setCentralWidget(self.tab_widget)
+
+        # Create menu bar
+        self._create_menu_bar()
+
+        # Create status bar
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Ready")
+
+    def _create_menu_bar(self):
+        """Create the application menu bar."""
+        menu_bar = self.menuBar()
+
+        # File menu
+        file_menu = menu_bar.addMenu("&File")
+
+        # Settings action
+        settings_action = QAction("&Settings", self)
+        settings_action.setShortcut("Ctrl+,")
+        settings_action.triggered.connect(self._open_settings)
+        file_menu.addAction(settings_action)
+
+        file_menu.addSeparator()
+
+        # Quit action
+        quit_action = QAction("&Quit", self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self.close)
+        file_menu.addAction(quit_action)
+
+    def _open_settings(self):
+        """Open the settings dialog."""
+        # Placeholder - will be implemented in Phase 3
+        self.status_bar.showMessage("Settings dialog coming soon...", 3000)
