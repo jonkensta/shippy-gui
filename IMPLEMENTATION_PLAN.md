@@ -4,10 +4,11 @@
 Convert the shippy CLI application to a PySide6 GUI while preserving all core functionality. The GUI will feature a single-window tabbed interface with immediate printing workflow and integrated settings management.
 
 ## User Preferences
-- **Layout**: Single window with tabs for Bulk/Individual/Manual modes
+- **Layout**: Single window with two tabs: Shipping (merged Individual + Manual) and Bulk
 - **Workflow**: Immediate printing (no queue, similar to CLI behavior)
 - **Configuration**: Settings dialog in GUI that saves to config.ini
 - **Printing**: Printer selection dropdown
+- **Shipping Tab Design**: Unified interface with optional lookup helpers (inmate lookup OR Google Maps search) that populate editable address fields
 
 ## Project Structure
 
@@ -23,8 +24,7 @@ shippy-gui/
 │   ├── tabs/
 │   │   ├── __init__.py
 │   │   ├── bulk_tab.py        # Bulk shipping mode
-│   │   ├── individual_tab.py  # Individual shipping mode
-│   │   └── manual_tab.py      # Manual shipping mode
+│   │   └── shipping_tab.py    # Unified shipping (inmate lookup + manual address)
 │   ├── widgets/
 │   │   ├── __init__.py
 │   │   ├── status_widget.py   # Color-coded status messages
@@ -90,7 +90,7 @@ shippy-gui/
 
 Components:
 - `QMainWindow` as main container
-- `QTabWidget` with three tabs: "Bulk", "Individual", "Manual"
+- `QTabWidget` with two tabs: "Shipping" (unified), "Bulk"
 - Menu bar with:
   - File → Settings (opens settings dialog)
   - File → Quit
@@ -100,7 +100,8 @@ Components:
 Tab management:
 - Each tab is a separate widget class
 - Tabs are always visible (no dynamic hiding)
-- Current tab focus determines active shipping mode
+- Shipping tab handles both inmate lookup and manual address entry
+- Bulk tab handles unit-based bulk shipping
 
 ### Phase 3: Settings Dialog
 **Goal**: GUI for editing configuration
@@ -128,84 +129,98 @@ Behavior:
 - Validates on Save, shows error dialog if invalid
 - Main window reloads config after successful save
 
-### Phase 4: Individual Shipping Tab (Simplest Mode)
-**Goal**: Implement individual inmate shipping
+### Phase 4: Unified Shipping Tab (Inmate Lookup + Manual Address)
+**Goal**: Implement unified shipping interface with optional lookup helpers
 
-**File**: `shippy_gui/tabs/individual_tab.py`
+**File**: `shippy_gui/tabs/shipping_tab.py`
 
 Layout:
 ```
-┌─ Individual Shipping ────────────────────┐
-│                                           │
-│ Enter barcode, inmate ID, or request ID: │
-│ [_____________________________________]   │
-│                                           │
-│ Weight (pounds):                          │
-│ [_____________________________________]   │
-│                                           │
-│ Printer:                                  │
-│ [Dropdown with available printers     ▼] │
-│                                           │
-│              [  Create Label  ]           │
-│                                           │
-│ Status: Ready                             │
-└───────────────────────────────────────────┘
+┌─ Shipping ─────────────────────────────────────┐
+│                                                 │
+│ Quick Lookup (optional):                       │
+│                                                 │
+│ Inmate Lookup:                                 │
+│ [Barcode/ID/Request          ] [Lookup]        │
+│                                                 │
+│ - OR -                                          │
+│                                                 │
+│ Address Search:                                │
+│ [Google Maps autocomplete    ] [Search]        │
+│                                                 │
+│ ─────────────────────────────────────────────  │
+│                                                 │
+│ Recipient Address:                             │
+│ Name:     [_____________________________]      │
+│ Company:  [_____________________________]      │
+│ Street 1: [_____________________________]      │
+│ Street 2: [_____________________________]      │
+│ City:     [_____________________________]      │
+│ State:    [_____________________________]      │
+│ ZIP:      [_____________________________]      │
+│                                                 │
+│ Weight (lbs): [___]                            │
+│ Printer:      [Printer Name            ▼]     │
+│                                                 │
+│            [  Create Label  ]                  │
+│                                                 │
+│ Status: Ready                                  │
+└─────────────────────────────────────────────────┘
 ```
 
-Workflow:
-1. User enters barcode/ID in QLineEdit
-2. User enters weight (QSpinBox, 1-70 range)
-3. User clicks "Create Label" button
-4. **Async operation** (using QThread or QThreadPool):
-   - Show "Looking up inmate..." status
-   - Call `server.find_inmate(user_input)`
-   - If multiple matches, show `QDialog` with jurisdiction selection list
+**Components:**
+
+1. **Inmate Lookup Section:**
+   - QLineEdit for barcode/ID/request ID input
+   - QPushButton "Lookup" to trigger search
+   - Calls `server.find_inmate(user_input)`
+   - On success: Populates Name (from inmate) and Address fields (from unit)
+   - On multiple matches: Shows QDialog with list format: "Jurisdiction - Name (ID) - Unit Name"
+
+2. **Address Search Section:**
+   - QLineEdit with Google Maps autocomplete (adapted from shippy/autocompletion.py)
+   - QPushButton "Search" or auto-search on selection
+   - Debounced API calls (2 second delay)
+   - On selection: Parses address and populates address fields
+   - On multiple matches: Shows QDialog with address suggestions
+
+3. **Recipient Address Fields:**
+   - All fields are editable QLineEdit widgets
+   - Can be populated by lookups OR manually entered/modified
+   - Name, Company (optional), Street 1, Street 2 (optional), City, State, ZIP
+
+4. **Shipment Controls:**
+   - Weight QSpinBox (1-70 lbs)
+   - Printer QComboBox
+   - "Create Label" QPushButton
+   - Status QLabel with color coding
+
+**Workflow:**
+1. User EITHER:
+   - Uses inmate lookup → fills name + address fields
+   - Uses Google Maps search → fills address fields only
+   - Manually enters all fields
+   - Or any combination (lookup then modify)
+2. User verifies/edits address fields as needed
+3. User enters weight
+4. User clicks "Create Label"
+5. **Async operation** (using QThread):
    - Show "Purchasing postage..." status
-   - Call `shipping.build_shipment()`
+   - Call `shipping.build_shipment()` with address from fields
    - Show "Downloading label..." status
    - Download PNG and add logo
    - Show "Printing..." status
    - Print to selected printer
-5. Show success/error status with color coding
-6. Clear input fields for next shipment
-7. Focus returns to barcode field
+6. Show success/error status with color coding
+7. Clear all fields for next shipment
 
-Error handling:
+**Error handling:**
 - Network errors → show error dialog, keep inputs
-- Invalid input → show warning in status bar
+- Invalid address → show warning in status bar
 - Print failure → automatic refund, show error dialog
 
-### Phase 5: Manual Shipping Tab (Address Autocomplete)
-**Goal**: Implement manual address entry with Google autocomplete
-
-**File**: `shippy_gui/tabs/manual_tab.py`
-
-Layout:
-```
-┌─ Manual Shipping ─────────────────────────┐
-│                                            │
-│ Recipient Name:                            │
-│ [_______________________________________]  │
-│                                            │
-│ Company (optional):                        │
-│ [_______________________________________]  │
-│                                            │
-│ Address:                                   │
-│ [_______________________________________ ] │
-│   ↓ 123 Main St, Austin, TX 78701         │ <- Autocomplete dropdown
-│   ↓ 456 Oak Ave, Austin, TX 78702         │
-│                                            │
-│ Weight (pounds):                           │
-│ [_______________________________________]  │
-│                                            │
-│ Printer:                                   │
-│ [Dropdown with available printers      ▼] │
-│                                            │
-│              [  Create Label  ]            │
-│                                            │
-│ Status: Ready                              │
-└────────────────────────────────────────────┘
-```
+### Phase 5: Google Maps Autocomplete Widget
+**Goal**: Create reusable autocomplete widget for address search
 
 **File**: `shippy_gui/widgets/autocomplete.py`
 
@@ -213,22 +228,9 @@ Create custom `QCompleter` subclass:
 - Adapts `shippy/autocompletion.py` GoogleMapsCompleter
 - Uses `QStringListModel` for suggestions
 - Debounced API calls (2 second delay)
-- Thread-safe updates
+- Thread-safe updates with QThread
 - Shows "Searching..." while loading
-
-Workflow:
-1. User enters name (QLineEdit)
-2. User enters company (QLineEdit, optional)
-3. User types address → autocomplete suggestions appear after 2s debounce
-4. User selects suggestion or presses Enter
-5. **Async operation**:
-   - Parse address using Google Geocoding API
-   - Validate address components
-   - Show warning if verification fails (non-blocking)
-6. User enters weight (QSpinBox)
-7. User clicks "Create Label"
-8. Same shipment creation flow as Individual tab
-9. Clear fields for next shipment
+- Integrates with QLineEdit in shipping tab
 
 ### Phase 6: Bulk Shipping Tab (Unit Autocomplete)
 **Goal**: Implement bulk unit shipping
