@@ -113,8 +113,8 @@ class ShippingTab(QWidget):
         self.address_search_input = QLineEdit()
         self.address_search_input.setPlaceholderText("Start typing address...")
         address_search_layout.addWidget(self.address_search_input, 1)
-        self.address_search_button = QPushButton("Search")
-        self.address_search_button.clicked.connect(self._search_address)
+        self.address_search_button = QPushButton("Load")
+        self.address_search_button.clicked.connect(self._load_address)
         address_search_layout.addWidget(self.address_search_button)
         lookup_layout.addLayout(address_search_layout)
 
@@ -298,9 +298,9 @@ class ShippingTab(QWidget):
         # Connect activation signal to parse selected address
         completer = self.address_search_input.completer()
         if completer:
-            completer.activated.connect(self._search_address)
+            completer.activated.connect(self._load_address)
 
-    def _search_address(self):
+    def _load_address(self):
         """Parse selected address and populate address fields."""
         search_query = self.address_search_input.text().strip()
         if not search_query:
