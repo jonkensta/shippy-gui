@@ -2,8 +2,11 @@
 
 import configparser
 import os
+from pathlib import Path
 
+import easypost
 import googlemaps
+from PIL import Image
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -25,6 +28,7 @@ from shippy_gui.core.models import Config
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.widgets.selection_dialog import SelectionDialog
 from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
+from shippy_gui.workers.shipment_worker import ShipmentWorker
 
 
 class ShippingTab(QWidget):
@@ -42,7 +46,12 @@ class ShippingTab(QWidget):
         self.server = None
         self.gmaps = None
         self.address_parser = None
+        self.easypost_client = None
+        self.config = None
+        self.logo_path = None
+        self.shipment_worker = None
         self._load_config()
+        self._load_logo()
         self._init_ui()
         self._load_printers()
         self._setup_autocomplete()
@@ -53,15 +62,25 @@ class ShippingTab(QWidget):
             config_parser = configparser.ConfigParser()
             config_parser.read(self.config_path)
             config_dict = {section: dict(config_parser[section]) for section in config_parser.sections()}
-            config = Config.model_validate(config_dict)
-            self.server = Server.from_config(config.ibp)
+            self.config = Config.model_validate(config_dict)
+            self.server = Server.from_config(self.config.ibp)
 
             # Initialize Google Maps client
-            self.gmaps = googlemaps.Client(key=config.googlemaps.apikey)
+            self.gmaps = googlemaps.Client(key=self.config.googlemaps.apikey)
             self.address_parser = AddressParser(self.gmaps)
+
+            # Initialize EasyPost client
+            self.easypost_client = easypost.EasyPostClient(self.config.easypost.apikey)
         except Exception as e:
-            # Server/gmaps will be None if config fails to load
+            # Server/gmaps/easypost will be None if config fails to load
             print(f"Failed to load config: {e}")
+
+    def _load_logo(self):
+        """Load logo image if available."""
+        # Look for logo in assets directory
+        logo_path = Path(__file__).parent.parent / "assets" / "logo.jpg"
+        if logo_path.exists():
+            self.logo_path = str(logo_path)
 
     def _init_ui(self):
         """Initialize the user interface."""
@@ -374,8 +393,111 @@ class ShippingTab(QWidget):
             self._set_status("No printer selected", "error")
             return
 
-        # TODO: Implement shipment workflow
-        self._set_status("Creating label...", "info")
+        # Check for required services
+        if not self.easypost_client:
+            QMessageBox.critical(
+                self,
+                "Configuration Error",
+                "EasyPost API not configured. Please check your config.ini file.",
+            )
+            return
+
+        if not self.config:
+            QMessageBox.critical(
+                self,
+                "Configuration Error",
+                "Configuration not loaded. Please check your config.ini file.",
+            )
+            return
+
+        # Disable create button during shipment
+        self.create_button.setEnabled(False)
+
+        # Build address dictionaries
+        from_address_dict = {
+            "name": self.config.return_address.name,
+            "street1": self.config.return_address.street1,
+            "street2": self.config.return_address.street2,
+            "city": self.config.return_address.city,
+            "state": self.config.return_address.state,
+            "zipcode": self.config.return_address.zipcode,
+        }
+
+        to_address_dict = {
+            "name": self.name_input.text().strip(),
+            "company": self.company_input.text().strip() or "",
+            "street1": self.street1_input.text().strip(),
+            "street2": self.street2_input.text().strip() or "",
+            "city": self.city_input.text().strip(),
+            "state": self.state_input.text().strip(),
+            "zipcode": self.zipcode_input.text().strip(),
+        }
+
+        # Get weight and printer
+        weight_lbs = self.weight_input.value()
+        printer_name = self.printer_combo.currentText()
+
+        # Create and start worker thread
+        self.shipment_worker = ShipmentWorker(
+            easypost_client=self.easypost_client,
+            from_address_dict=from_address_dict,
+            to_address_dict=to_address_dict,
+            weight_lbs=weight_lbs,
+            printer_name=printer_name,
+            logo_path=self.logo_path,
+        )
+
+        # Connect signals
+        self.shipment_worker.progress.connect(lambda msg: self._set_status(msg, "info"))
+        self.shipment_worker.warning.connect(lambda msg: self._set_status(msg, "warning"))
+        self.shipment_worker.success.connect(self._on_shipment_success)
+        self.shipment_worker.error.connect(self._on_shipment_error)
+        self.shipment_worker.finished.connect(self._on_shipment_finished)
+
+        # Start the worker
+        self.shipment_worker.start()
+
+    def _on_shipment_success(self, message: str):
+        """Handle successful shipment.
+
+        Args:
+            message: Success message with tracking info
+        """
+        self._set_status(message, "success")
+
+        # Clear all input fields for next shipment
+        self.inmate_input.clear()
+        self.address_search_input.clear()
+        self.name_input.clear()
+        self.company_input.clear()
+        self.street1_input.clear()
+        self.street2_input.clear()
+        self.city_input.clear()
+        self.state_input.clear()
+        self.zipcode_input.clear()
+        self.weight_input.setValue(1)
+
+        # Focus on first input
+        self.inmate_input.setFocus()
+
+    def _on_shipment_error(self, message: str):
+        """Handle shipment error.
+
+        Args:
+            message: Error message
+        """
+        self._set_status("Shipment failed", "error")
+        QMessageBox.critical(
+            self,
+            "Shipment Error",
+            message,
+        )
+
+    def _on_shipment_finished(self):
+        """Handle worker thread completion."""
+        # Re-enable create button
+        self.create_button.setEnabled(True)
+        self.shipment_worker = None
 
     def _set_status(self, message: str, status_type: str = "info"):
         """Set status message with color coding.
