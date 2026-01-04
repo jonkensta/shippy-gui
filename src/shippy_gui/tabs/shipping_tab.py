@@ -289,6 +289,9 @@ class ShippingTab(QWidget):
         Args:
             inmate: Inmate dict from server
         """
+        # Clear all fields first
+        self._clear_recipient_fields()
+
         # Populate name from inmate
         first_name = inmate.get("first_name", "")
         last_name = inmate.get("last_name", "")
@@ -342,6 +345,16 @@ class ShippingTab(QWidget):
         except Exception as e:
             print(f"Failed to load units: {e}")
 
+    def _clear_recipient_fields(self):
+        """Clear all recipient address fields."""
+        self.name_input.clear()
+        self.company_input.clear()
+        self.street1_input.clear()
+        self.street2_input.clear()
+        self.city_input.clear()
+        self.state_input.clear()
+        self.zipcode_input.clear()
+
     def _load_address(self):
         """Parse selected address and populate address fields."""
         search_query = self.address_search_input.text().strip()
@@ -371,6 +384,9 @@ class ShippingTab(QWidget):
                     f"Could not parse the selected address:\n\n{search_query}\n\nPlease try a different address or enter manually.",
                 )
                 return
+
+            # Clear all fields first
+            self._clear_recipient_fields()
 
             # Populate address fields from parsed components
             if "street1" in address_parts:
@@ -440,9 +456,11 @@ class ShippingTab(QWidget):
         try:
             address_dict = self.server.unit_address(composite_id)
 
+            # Clear all fields first
+            self._clear_recipient_fields()
+
             # Populate name field with "ATTN: Mailroom Staff"
             self.name_input.setText(address_dict["name"])
-            self.company_input.clear()
 
             # Populate address fields
             self.street1_input.setText(address_dict["street1"])
