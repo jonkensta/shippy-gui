@@ -315,8 +315,8 @@ class ShippingTab(QWidget):
         if not self.gmaps:
             return
 
-        # Set up autocomplete with 2 second debounce
-        setup_google_maps_autocomplete(self.address_search_input, self.gmaps, debounce_delay=2000)
+        # Set up autocomplete with 500ms debounce (balance between responsiveness and API usage)
+        setup_google_maps_autocomplete(self.address_search_input, self.gmaps, debounce_delay=500)
 
         # Note: Don't connect activated signal - only load when button is clicked
 
