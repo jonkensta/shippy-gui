@@ -98,8 +98,13 @@ class ShippingTab(QWidget):
         inmate_layout.addWidget(QLabel("Inmate Lookup:"))
         self.inmate_input = QLineEdit()
         self.inmate_input.setPlaceholderText("Barcode, ID, or Request ID")
+        self.inmate_input.setToolTip(
+            "Enter inmate barcode (TEX-12345678-0), inmate ID (12345678), or request ID.\n"
+            "Searches both Texas and Federal jurisdictions."
+        )
         inmate_layout.addWidget(self.inmate_input, 1)
         self.inmate_lookup_button = QPushButton("Lookup")
+        self.inmate_lookup_button.setToolTip("Search for inmate and load their name and unit address")
         self.inmate_lookup_button.clicked.connect(self._lookup_inmate)
         inmate_layout.addWidget(self.inmate_lookup_button)
         lookup_layout.addLayout(inmate_layout)
@@ -115,8 +120,13 @@ class ShippingTab(QWidget):
         address_search_layout.addWidget(QLabel("Address Search:"))
         self.address_search_input = QLineEdit()
         self.address_search_input.setPlaceholderText("Start typing address...")
+        self.address_search_input.setToolTip(
+            "Type any US address and select from autocomplete suggestions.\n"
+            "Click 'Load' to parse and populate the address fields below."
+        )
         address_search_layout.addWidget(self.address_search_input, 1)
         self.address_search_button = QPushButton("Load")
+        self.address_search_button.setToolTip("Parse selected address and load into fields below")
         self.address_search_button.clicked.connect(self._load_address)
         address_search_layout.addWidget(self.address_search_button)
         lookup_layout.addLayout(address_search_layout)
@@ -132,8 +142,13 @@ class ShippingTab(QWidget):
         unit_lookup_layout.addWidget(QLabel("Unit Lookup:"))
         self.unit_input = QLineEdit()
         self.unit_input.setPlaceholderText("Start typing unit name...")
+        self.unit_input.setToolTip(
+            "Type a Texas prison unit name and select from autocomplete.\n"
+            "Click 'Load' to address the package to the unit mailroom."
+        )
         unit_lookup_layout.addWidget(self.unit_input, 1)
         self.unit_lookup_button = QPushButton("Load")
+        self.unit_lookup_button.setToolTip("Load unit address with 'ATTN: Mailroom Staff' as recipient")
         self.unit_lookup_button.clicked.connect(self._load_unit)
         unit_lookup_layout.addWidget(self.unit_lookup_button)
         lookup_layout.addLayout(unit_lookup_layout)
@@ -147,29 +162,36 @@ class ShippingTab(QWidget):
 
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Recipient name")
+        self.name_input.setToolTip("Recipient's full name or 'ATTN: Mailroom Staff' for unit shipments")
         address_form.addRow("Name:", self.name_input)
 
         self.company_input = QLineEdit()
         self.company_input.setPlaceholderText("Optional")
+        self.company_input.setToolTip("Company or institution name (optional)")
         address_form.addRow("Company:", self.company_input)
 
         self.street1_input = QLineEdit()
+        self.street1_input.setToolTip("Street address line 1 (required)")
         address_form.addRow("Street 1:", self.street1_input)
 
         self.street2_input = QLineEdit()
         self.street2_input.setPlaceholderText("Optional")
+        self.street2_input.setToolTip("Apartment, suite, unit, etc. (optional)")
         address_form.addRow("Street 2:", self.street2_input)
 
         self.city_input = QLineEdit()
+        self.city_input.setToolTip("City name (required)")
         address_form.addRow("City:", self.city_input)
 
         self.state_input = QLineEdit()
         self.state_input.setPlaceholderText("TX")
         self.state_input.setMaxLength(2)
+        self.state_input.setToolTip("Two-letter state code (e.g., TX, CA, NY)")
         address_form.addRow("State:", self.state_input)
 
         self.zipcode_input = QLineEdit()
         self.zipcode_input.setPlaceholderText("78703")
+        self.zipcode_input.setToolTip("5-digit ZIP code (required)")
         address_form.addRow("ZIP Code:", self.zipcode_input)
 
         address_group.setLayout(address_form)
@@ -182,9 +204,11 @@ class ShippingTab(QWidget):
         self.weight_input.setRange(1, 70)
         self.weight_input.setValue(1)
         self.weight_input.setSuffix(" lbs")
+        self.weight_input.setToolTip("Package weight in pounds (1-70 lbs for Library Mail rate)")
         shipment_form.addRow("Weight:", self.weight_input)
 
         self.printer_combo = QComboBox()
+        self.printer_combo.setToolTip("Select printer for shipping label (4x6 label size)")
         shipment_form.addRow("Printer:", self.printer_combo)
 
         layout.addLayout(shipment_form)
@@ -192,6 +216,10 @@ class ShippingTab(QWidget):
         # Create Label Button
         self.create_button = QPushButton("Create Label")
         self.create_button.setDefault(True)
+        self.create_button.setToolTip(
+            "Purchase postage, download label, and print to selected printer.\n"
+            "Label will be automatically refunded if printing fails."
+        )
         self.create_button.clicked.connect(self._create_label)
         layout.addWidget(self.create_button)
 
