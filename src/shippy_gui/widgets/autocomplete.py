@@ -9,13 +9,14 @@ from PySide6.QtCore import Qt, QStringListModel
 class GoogleMapsLookupWorker(QThread):
     """Worker thread for Google Maps API calls."""
 
-    results_ready = Signal(list)  # List of address strings
-    error_occurred = Signal(str)  # Error message
+    results_ready = Signal(int, list)  # (request_id, list of address strings)
+    error_occurred = Signal(int, str)  # (request_id, error message)
 
-    def __init__(self, gmaps: googlemaps.Client, search_text: str):
+    def __init__(self, gmaps: googlemaps.Client, search_text: str, request_id: int):
         super().__init__()
         self.gmaps = gmaps
         self.search_text = search_text
+        self.request_id = request_id
 
     def run(self):
         """Fetch autocomplete predictions from Google Maps."""
@@ -26,13 +27,13 @@ class GoogleMapsLookupWorker(QThread):
             predictions = [
                 prediction["description"] for prediction in places_autocomplete
             ]
-            self.results_ready.emit(predictions)
+            self.results_ready.emit(self.request_id, predictions)
         except (
             googlemaps.exceptions.ApiError,
             googlemaps.exceptions.Timeout,
             googlemaps.exceptions.TransportError,
         ) as e:
-            self.error_occurred.emit(str(e))
+            self.error_occurred.emit(self.request_id, str(e))
 
 
 class GoogleMapsCompleter(QCompleter):
@@ -51,6 +52,8 @@ class GoogleMapsCompleter(QCompleter):
         self.debounce_delay = debounce_delay
         self.cache = {}
         self.current_worker = None
+        self.next_request_id = 0
+        self.current_request_id = -1
 
         # Set up string list model for completions
         self.model = QStringListModel()
@@ -90,26 +93,34 @@ class GoogleMapsCompleter(QCompleter):
         """Fetch predictions from Google Maps API (called after debounce)."""
         text = self.current_text
 
-        # Cancel any existing worker
-        if self.current_worker and self.current_worker.isRunning():
-            self.current_worker.terminate()
-            self.current_worker.wait()
+        # Assign a new request ID for this search
+        request_id = self.next_request_id
+        self.next_request_id += 1
+        self.current_request_id = request_id
+
+        # Note: Don't terminate existing worker - let it finish and ignore stale results
+        # This is safer than terminate() which can cause crashes
 
         # Start new worker thread
-        self.current_worker = GoogleMapsLookupWorker(self.gmaps, text)
+        self.current_worker = GoogleMapsLookupWorker(self.gmaps, text, request_id)
         self.current_worker.results_ready.connect(
-            lambda predictions: self._on_results_ready(text, predictions)
+            lambda req_id, predictions: self._on_results_ready(text, req_id, predictions)
         )
         self.current_worker.error_occurred.connect(self._on_error)
         self.current_worker.start()
 
-    def _on_results_ready(self, text: str, predictions: list[str]):
+    def _on_results_ready(self, text: str, request_id: int, predictions: list[str]):
         """Handle results from worker thread.
 
         Args:
             text: The search text these predictions are for
+            request_id: Request ID that generated these results
             predictions: List of address predictions
         """
+        # Ignore stale results from old requests
+        if request_id != self.current_request_id:
+            return
+
         # Cache the results
         self.cache[text] = predictions
 
@@ -117,12 +128,17 @@ class GoogleMapsCompleter(QCompleter):
         if text == self.current_text:
             self.model.setStringList(predictions)
 
-    def _on_error(self, error_message: str):
+    def _on_error(self, request_id: int, error_message: str):
         """Handle error from worker thread.
 
         Args:
+            request_id: Request ID that generated this error
             error_message: Error message
         """
+        # Ignore stale errors from old requests
+        if request_id != self.current_request_id:
+            return
+
         # Clear completions on error
         self.model.setStringList([])
         print(f"Google Maps API error: {error_message}")
