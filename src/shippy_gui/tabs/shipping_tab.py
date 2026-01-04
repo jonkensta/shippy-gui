@@ -3,6 +3,7 @@
 import configparser
 import os
 
+import googlemaps
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -21,7 +22,9 @@ from PySide6.QtCore import Qt
 from shippy_gui.printing.printer_manager import get_available_printers, get_default_printer
 from shippy_gui.core.server import Server
 from shippy_gui.core.models import Config
+from shippy_gui.core.addresses import AddressParser
 from shippy_gui.widgets.selection_dialog import SelectionDialog
+from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
 
 
 class ShippingTab(QWidget):
@@ -37,9 +40,12 @@ class ShippingTab(QWidget):
         super().__init__(parent)
         self.config_path = config_path or os.path.join(os.getcwd(), "config.ini")
         self.server = None
+        self.gmaps = None
+        self.address_parser = None
         self._load_config()
         self._init_ui()
         self._load_printers()
+        self._setup_autocomplete()
 
     def _load_config(self):
         """Load configuration and initialize server."""
@@ -49,8 +55,12 @@ class ShippingTab(QWidget):
             config_dict = {section: dict(config_parser[section]) for section in config_parser.sections()}
             config = Config.model_validate(config_dict)
             self.server = Server.from_config(config.ibp)
+
+            # Initialize Google Maps client
+            self.gmaps = googlemaps.Client(key=config.googlemaps.apikey)
+            self.address_parser = AddressParser(self.gmaps)
         except Exception as e:
-            # Server will be None if config fails to load
+            # Server/gmaps will be None if config fails to load
             print(f"Failed to load config: {e}")
 
     def _init_ui(self):
@@ -258,15 +268,84 @@ class ShippingTab(QWidget):
             self.state_input.setText(unit.get("state", ""))
             self.zipcode_input.setText(unit.get("zipcode", ""))
 
+    def _setup_autocomplete(self):
+        """Set up Google Maps autocomplete on address search field."""
+        if not self.gmaps:
+            return
+
+        # Set up autocomplete with 2 second debounce
+        setup_google_maps_autocomplete(self.address_search_input, self.gmaps, debounce_delay=2000)
+
+        # Connect activation signal to parse selected address
+        completer = self.address_search_input.completer()
+        if completer:
+            completer.activated.connect(self._search_address)
+
     def _search_address(self):
-        """Search Google Maps and populate address fields."""
+        """Parse selected address and populate address fields."""
         search_query = self.address_search_input.text().strip()
         if not search_query:
             self._set_status("Please enter an address to search", "error")
             return
 
-        # TODO: Implement Google Maps search workflow
-        self._set_status(f"Searching for address: {search_query}...", "info")
+        if not self.address_parser:
+            QMessageBox.critical(
+                self,
+                "Configuration Error",
+                "Google Maps not configured. Please check your config.ini file.",
+            )
+            return
+
+        self._set_status(f"Parsing address: {search_query}...", "info")
+
+        try:
+            # Parse the address using Google Geocoding API
+            address_parts = self.address_parser(search_query)
+
+            if not address_parts:
+                self._set_status("Could not parse address", "error")
+                QMessageBox.warning(
+                    self,
+                    "Address Parse Error",
+                    f"Could not parse the selected address:\n\n{search_query}\n\nPlease try a different address or enter manually.",
+                )
+                return
+
+            # Populate address fields from parsed components
+            if "street1" in address_parts:
+                self.street1_input.setText(address_parts["street1"])
+
+            if "street2" in address_parts:
+                self.street2_input.setText(address_parts.get("street2", ""))
+
+            if "city" in address_parts:
+                self.city_input.setText(address_parts["city"])
+
+            if "state" in address_parts:
+                self.state_input.setText(address_parts["state"])
+
+            if "zipcode" in address_parts:
+                self.zipcode_input.setText(address_parts["zipcode"])
+
+            # Check if address verification failed
+            required_fields = ["street1", "city", "state", "zipcode"]
+            missing_fields = [field for field in required_fields if field not in address_parts]
+
+            if missing_fields:
+                self._set_status(
+                    f"Address incomplete - missing: {', '.join(missing_fields)}",
+                    "warning"
+                )
+            else:
+                self._set_status("Address loaded successfully", "success")
+
+        except Exception as e:
+            self._set_status("Address search failed", "error")
+            QMessageBox.critical(
+                self,
+                "Address Search Error",
+                f"Error parsing address:\n\n{str(e)}",
+            )
 
     def _create_label(self):
         """Create and print shipping label."""
