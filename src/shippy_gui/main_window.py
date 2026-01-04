@@ -8,8 +8,7 @@ from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
 from PySide6.QtGui import QAction
 
 from shippy_gui.tabs.bulk_tab import BulkTab
-from shippy_gui.tabs.individual_tab import IndividualTab
-from shippy_gui.tabs.manual_tab import ManualTab
+from shippy_gui.tabs.shipping_tab import ShippingTab
 from shippy_gui.settings_dialog import SettingsDialog
 
 
@@ -36,12 +35,10 @@ class MainWindow(QMainWindow):
         self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
 
         # Create and add tabs
-        self.individual_tab = IndividualTab()
-        self.manual_tab = ManualTab()
+        self.shipping_tab = ShippingTab()
         self.bulk_tab = BulkTab()
 
-        self.tab_widget.addTab(self.individual_tab, "Individual")
-        self.tab_widget.addTab(self.manual_tab, "Manual")
+        self.tab_widget.addTab(self.shipping_tab, "Shipping")
         self.tab_widget.addTab(self.bulk_tab, "Bulk")
 
         # Set tab widget as central widget
