@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel,
     QMessageBox,
+    QCompleter,
 )
 from PySide6.QtCore import Qt
 
@@ -49,12 +50,14 @@ class ShippingTab(QWidget):
         self.easypost_client = None
         self.config = None
         self.logo_path = None
+        self.units_map = {}  # Map of unit name (uppercase) -> composite ID
         self.shipment_worker = None
         self._load_config()
         self._load_logo()
         self._init_ui()
         self._load_printers()
         self._setup_autocomplete()
+        self._load_units()
 
     def _load_config(self):
         """Load configuration and initialize server."""
@@ -117,6 +120,23 @@ class ShippingTab(QWidget):
         self.address_search_button.clicked.connect(self._load_address)
         address_search_layout.addWidget(self.address_search_button)
         lookup_layout.addLayout(address_search_layout)
+
+        # OR separator
+        or_label2 = QLabel("- OR -")
+        or_label2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        or_label2.setStyleSheet("color: #666; font-style: italic;")
+        lookup_layout.addWidget(or_label2)
+
+        # Unit Lookup
+        unit_lookup_layout = QHBoxLayout()
+        unit_lookup_layout.addWidget(QLabel("Unit Lookup:"))
+        self.unit_input = QLineEdit()
+        self.unit_input.setPlaceholderText("Start typing unit name...")
+        unit_lookup_layout.addWidget(self.unit_input, 1)
+        self.unit_lookup_button = QPushButton("Load")
+        self.unit_lookup_button.clicked.connect(self._load_unit)
+        unit_lookup_layout.addWidget(self.unit_lookup_button)
+        lookup_layout.addLayout(unit_lookup_layout)
 
         lookup_group.setLayout(lookup_layout)
         layout.addWidget(lookup_group)
@@ -300,6 +320,28 @@ class ShippingTab(QWidget):
         if completer:
             completer.activated.connect(self._load_address)
 
+    def _load_units(self):
+        """Load units list from server and set up autocomplete."""
+        if not self.server:
+            return
+
+        try:
+            # Fetch units (already filtered to Texas only)
+            self.units_map = self.server.unit_ids()
+
+            if not self.units_map:
+                return
+
+            # Set up autocomplete with unit names
+            unit_names = sorted(self.units_map.keys())
+            completer = QCompleter(unit_names, self.unit_input)
+            completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+            self.unit_input.setCompleter(completer)
+
+        except Exception as e:
+            print(f"Failed to load units: {e}")
+
     def _load_address(self):
         """Parse selected address and populate address fields."""
         search_query = self.address_search_input.text().strip()
@@ -364,6 +406,59 @@ class ShippingTab(QWidget):
                 self,
                 "Address Search Error",
                 f"Error parsing address:\n\n{str(e)}",
+            )
+
+    def _load_unit(self):
+        """Load unit address and populate address fields."""
+        unit_name = self.unit_input.text().strip().upper()
+        if not unit_name:
+            self._set_status("Please enter a unit name", "error")
+            return
+
+        # Check if unit exists in our map
+        if unit_name not in self.units_map:
+            self._set_status("Invalid unit name", "error")
+            QMessageBox.warning(
+                self,
+                "Invalid Unit",
+                f"'{unit_name}' is not a recognized unit.\n\nPlease select from the autocomplete suggestions.",
+            )
+            return
+
+        if not self.server:
+            QMessageBox.critical(
+                self,
+                "Configuration Error",
+                "Server not configured. Please check your config.ini file.",
+            )
+            return
+
+        # Get unit composite ID and fetch address
+        composite_id = self.units_map[unit_name]
+        self._set_status(f"Fetching address for {unit_name}...", "info")
+
+        try:
+            address_dict = self.server.unit_address(composite_id)
+
+            # Populate name field with "ATTN: Mailroom Staff"
+            self.name_input.setText(address_dict["name"])
+            self.company_input.clear()
+
+            # Populate address fields
+            self.street1_input.setText(address_dict["street1"])
+            self.street2_input.setText(address_dict.get("street2", ""))
+            self.city_input.setText(address_dict["city"])
+            self.state_input.setText(address_dict["state"])
+            self.zipcode_input.setText(address_dict["zipcode"])
+
+            self._set_status(f"Loaded address for {unit_name}", "success")
+
+        except Exception as e:
+            self._set_status("Failed to fetch unit address", "error")
+            QMessageBox.critical(
+                self,
+                "Unit Address Error",
+                f"Error fetching address for {unit_name}:\n\n{str(e)}",
             )
 
     def _create_label(self):
@@ -468,6 +563,7 @@ class ShippingTab(QWidget):
         # Clear all input fields for next shipment
         self.inmate_input.clear()
         self.address_search_input.clear()
+        self.unit_input.clear()
         self.name_input.clear()
         self.company_input.clear()
         self.street1_input.clear()

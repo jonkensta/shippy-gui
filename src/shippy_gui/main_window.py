@@ -4,16 +4,15 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
+from PySide6.QtWidgets import QMainWindow, QStatusBar
 from PySide6.QtGui import QAction
 
-from shippy_gui.tabs.bulk_tab import BulkTab
 from shippy_gui.tabs.shipping_tab import ShippingTab
 from shippy_gui.settings_dialog import SettingsDialog
 
 
 class MainWindow(QMainWindow):
-    """Main application window with tabbed interface."""
+    """Main application window for shipping label generation."""
 
     def __init__(self, config_path: str = None):
         """Initialize the main window.
@@ -30,19 +29,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Shippy GUI - IBP Shipping Label Generator")
         self.setMinimumSize(800, 600)
 
-        # Create tab widget
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
-
-        # Create and add tabs
+        # Create and set shipping tab as central widget
         self.shipping_tab = ShippingTab(config_path=self.config_path)
-        self.bulk_tab = BulkTab(config_path=self.config_path)
-
-        self.tab_widget.addTab(self.shipping_tab, "Shipping")
-        self.tab_widget.addTab(self.bulk_tab, "Bulk")
-
-        # Set tab widget as central widget
-        self.setCentralWidget(self.tab_widget)
+        self.setCentralWidget(self.shipping_tab)
 
         # Create menu bar
         self._create_menu_bar()
