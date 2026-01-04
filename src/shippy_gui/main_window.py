@@ -35,7 +35,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
 
         # Create and add tabs
-        self.shipping_tab = ShippingTab()
+        self.shipping_tab = ShippingTab(config_path=self.config_path)
         self.bulk_tab = BulkTab()
 
         self.tab_widget.addTab(self.shipping_tab, "Shipping")

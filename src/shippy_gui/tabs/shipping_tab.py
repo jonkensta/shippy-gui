@@ -1,5 +1,8 @@
 """Unified shipping tab with inmate lookup and manual address entry."""
 
+import configparser
+import os
+
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -11,20 +14,44 @@ from PySide6.QtWidgets import (
     QComboBox,
     QPushButton,
     QLabel,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt
 
 from shippy_gui.printing.printer_manager import get_available_printers, get_default_printer
+from shippy_gui.core.server import Server
+from shippy_gui.core.models import Config
+from shippy_gui.widgets.selection_dialog import SelectionDialog
 
 
 class ShippingTab(QWidget):
     """Tab for unified shipping with optional inmate/address lookup."""
 
-    def __init__(self, parent=None):
-        """Initialize the shipping tab."""
+    def __init__(self, config_path: str = None, parent=None):
+        """Initialize the shipping tab.
+
+        Args:
+            config_path: Path to config.ini file
+            parent: Parent widget
+        """
         super().__init__(parent)
+        self.config_path = config_path or os.path.join(os.getcwd(), "config.ini")
+        self.server = None
+        self._load_config()
         self._init_ui()
         self._load_printers()
+
+    def _load_config(self):
+        """Load configuration and initialize server."""
+        try:
+            config_parser = configparser.ConfigParser()
+            config_parser.read(self.config_path)
+            config_dict = {section: dict(config_parser[section]) for section in config_parser.sections()}
+            config = Config.model_validate(config_dict)
+            self.server = Server.from_config(config.ibp)
+        except Exception as e:
+            # Server will be None if config fails to load
+            print(f"Failed to load config: {e}")
 
     def _init_ui(self):
         """Initialize the user interface."""
@@ -151,8 +178,85 @@ class ShippingTab(QWidget):
             self._set_status("Please enter a barcode, ID, or request ID", "error")
             return
 
-        # TODO: Implement inmate lookup workflow
+        if not self.server:
+            QMessageBox.critical(
+                self,
+                "Configuration Error",
+                "Server not configured. Please check your config.ini file.",
+            )
+            return
+
         self._set_status(f"Looking up inmate: {inmate_id}...", "info")
+
+        try:
+            result, strategy = self.server.find_inmate(inmate_id)
+
+            # Handle multiple matches
+            if strategy == "multiple_matches":
+                # result is a list of (jurisdiction, inmate_data) tuples
+                options = []
+                for jurisdiction, inmate in result:
+                    unit_name = inmate.get("unit", {}).get("name", "Unknown Unit") if inmate.get("unit") else "No Unit"
+                    first_name = inmate.get("first_name", "")
+                    last_name = inmate.get("last_name", "")
+                    name = f"{first_name} {last_name}".strip() or "Unknown"
+                    inmate_id_str = inmate.get("id", "")
+                    display = f"{jurisdiction} - {name} ({inmate_id_str}) - {unit_name}"
+                    options.append((display, (jurisdiction, inmate)))
+
+                dialog = SelectionDialog(
+                    "Multiple Inmates Found",
+                    "Please select the correct inmate:",
+                    options,
+                    self,
+                )
+
+                if dialog.exec():
+                    selected = dialog.get_selected()
+                    if selected:
+                        jurisdiction, inmate = selected
+                        self._populate_from_inmate(inmate)
+                        self._set_status(f"Loaded inmate from {jurisdiction}", "success")
+                else:
+                    self._set_status("Lookup cancelled", "warning")
+            else:
+                # Single match - result is the inmate dict
+                self._populate_from_inmate(result)
+                self._set_status(f"Found inmate using {strategy}", "success")
+
+        except ValueError as e:
+            self._set_status(str(e), "error")
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Lookup Error",
+                f"Error looking up inmate:\n\n{str(e)}",
+            )
+            self._set_status("Lookup failed", "error")
+
+    def _populate_from_inmate(self, inmate: dict):
+        """Populate address fields from inmate data.
+
+        Args:
+            inmate: Inmate dict from server
+        """
+        # Populate name from inmate
+        first_name = inmate.get("first_name", "")
+        last_name = inmate.get("last_name", "")
+        name = f"{first_name} {last_name}".strip()
+        if name:
+            self.name_input.setText(name)
+        else:
+            self.name_input.setText(f"Inmate #{inmate.get('id', '')}")
+
+        # Populate address from unit
+        unit = inmate.get("unit")
+        if unit:
+            self.street1_input.setText(unit.get("street1", ""))
+            self.street2_input.setText(unit.get("street2", "") or "")
+            self.city_input.setText(unit.get("city", ""))
+            self.state_input.setText(unit.get("state", ""))
+            self.zipcode_input.setText(unit.get("zipcode", ""))
 
     def _search_address(self):
         """Search Google Maps and populate address fields."""
