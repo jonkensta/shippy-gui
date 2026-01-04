@@ -1,5 +1,8 @@
 """Main window for shippy-gui application."""
 
+import os
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
 from PySide6.QtGui import QAction
@@ -7,14 +10,20 @@ from PySide6.QtGui import QAction
 from shippy_gui.tabs.bulk_tab import BulkTab
 from shippy_gui.tabs.individual_tab import IndividualTab
 from shippy_gui.tabs.manual_tab import ManualTab
+from shippy_gui.settings_dialog import SettingsDialog
 
 
 class MainWindow(QMainWindow):
     """Main application window with tabbed interface."""
 
-    def __init__(self):
-        """Initialize the main window."""
+    def __init__(self, config_path: str = None):
+        """Initialize the main window.
+
+        Args:
+            config_path: Path to config.ini file. Defaults to config.ini in current directory.
+        """
         super().__init__()
+        self.config_path = config_path or os.path.join(os.getcwd(), "config.ini")
         self._init_ui()
 
     def _init_ui(self):
@@ -69,5 +78,11 @@ class MainWindow(QMainWindow):
 
     def _open_settings(self):
         """Open the settings dialog."""
-        # Placeholder - will be implemented in Phase 3
-        self.status_bar.showMessage("Settings dialog coming soon...", 3000)
+        dialog = SettingsDialog(self.config_path, self)
+        if dialog.exec():
+            # Config was saved successfully
+            self.status_bar.showMessage("Settings saved successfully", 3000)
+            # Tabs can reload config if needed in future phases
+        else:
+            # Dialog was cancelled
+            self.status_bar.showMessage("Settings cancelled", 3000)
