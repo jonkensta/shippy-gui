@@ -318,10 +318,7 @@ class ShippingTab(QWidget):
         # Set up autocomplete with 2 second debounce
         setup_google_maps_autocomplete(self.address_search_input, self.gmaps, debounce_delay=2000)
 
-        # Connect activation signal to parse selected address
-        completer = self.address_search_input.completer()
-        if completer:
-            completer.activated.connect(self._load_address)
+        # Note: Don't connect activated signal - only load when button is clicked
 
     def _load_units(self):
         """Load units list from server and set up autocomplete."""
