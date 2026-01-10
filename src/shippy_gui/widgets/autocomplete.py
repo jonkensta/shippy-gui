@@ -84,6 +84,9 @@ class GoogleMapsCompleter(QCompleter):
         # Check cache first
         if text in self.cache:
             self.model.setStringList(self.cache[text])
+            # Force the popup to show when using cached results
+            if self.cache[text]:
+                self.complete()
             return
 
         # Start debounce timer
@@ -130,6 +133,9 @@ class GoogleMapsCompleter(QCompleter):
         # Update model if this is still the current text
         if text == self.current_text:
             self.model.setStringList(predictions)
+            # Force the popup to show since the model was updated asynchronously
+            if predictions:
+                self.complete()
 
     def _on_error(self, request_id: int, error_message: str):
         """Handle error from worker thread.
