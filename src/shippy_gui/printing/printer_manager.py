@@ -203,14 +203,14 @@ def _print_image_linux(img: Image.Image, printer_name: str) -> None:
 
 
 def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image.Image:
-    """Scale image to fit printer's printable area.
+    """Scale image to fit printer's printable area and center it on the page.
 
     Args:
         img: PIL Image to scale
         printer_name: Name of the printer
 
     Returns:
-        Scaled image, or original if scaling info unavailable
+        Full-page image with scaled label centered, or original if scaling info unavailable
     """
     try:
         import cups
@@ -252,11 +252,25 @@ def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image
         scale = 0.95 * min(ratios)  # 95% to avoid clipping
 
         # Scale the image
-        new_width = int(img.size[0] * scale)
-        new_height = int(img.size[1] * scale)
+        scaled_width = int(img.size[0] * scale)
+        scaled_height = int(img.size[1] * scale)
 
-        if new_width > 0 and new_height > 0:
-            return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        if scaled_width > 0 and scaled_height > 0:
+            scaled_img = img.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+
+            # Create a full-page canvas (total physical page size)
+            total_width_px = int(page_width_pts * dpi / 72)
+            total_height_px = int(page_height_pts * dpi / 72)
+            canvas = Image.new('RGB', (total_width_px, total_height_px), 'white')
+
+            # Calculate position to center the scaled image
+            x_offset = int((total_width_px - scaled_width) / 2)
+            y_offset = int((total_height_px - scaled_height) / 2)
+
+            # Paste the scaled image onto the center of the canvas
+            canvas.paste(scaled_img, (x_offset, y_offset))
+
+            return canvas
 
     except ImportError:
         # pycups not available, return original and let lp handle it
