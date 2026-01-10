@@ -199,6 +199,7 @@ def _print_image_linux(img: Image.Image, printer_name: str) -> None:
 
         finally:
             import os
+
             os.remove(tmpfile.name)
 
 
@@ -256,12 +257,14 @@ def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image
         scaled_height = int(img.size[1] * scale)
 
         if scaled_width > 0 and scaled_height > 0:
-            scaled_img = img.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+            scaled_img = img.resize(
+                (scaled_width, scaled_height), Image.Resampling.LANCZOS
+            )
 
             # Create a full-page canvas (total physical page size)
             total_width_px = int(page_width_pts * dpi / 72)
             total_height_px = int(page_height_pts * dpi / 72)
-            canvas = Image.new('RGB', (total_width_px, total_height_px), 'white')
+            canvas = Image.new("RGB", (total_width_px, total_height_px), "white")
 
             # Calculate position to center the scaled image
             x_offset = int((total_width_px - scaled_width) / 2)
@@ -355,4 +358,5 @@ def _print_image_windows_fallback(img: Image.Image) -> None:
 
         finally:
             import os
+
             os.remove(tmpfile.name)

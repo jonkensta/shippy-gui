@@ -15,7 +15,9 @@ from PySide6.QtCore import Qt
 class SelectionDialog(QDialog):
     """Dialog for selecting one option from multiple choices."""
 
-    def __init__(self, title: str, message: str, options: list[tuple[str, any]], parent=None):
+    def __init__(
+        self, title: str, message: str, options: list[tuple[str, any]], parent=None
+    ):
         """Initialize the selection dialog.
 
         Args:

@@ -1,9 +1,8 @@
 """Google Maps autocomplete widget for Qt."""
 
 import googlemaps
-from PySide6.QtCore import QTimer, QThread, Signal
+from PySide6.QtCore import QStringListModel, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import QCompleter, QLineEdit
-from PySide6.QtCore import Qt, QStringListModel
 
 
 class GoogleMapsLookupWorker(QThread):
@@ -39,7 +38,9 @@ class GoogleMapsLookupWorker(QThread):
 class GoogleMapsCompleter(QCompleter):
     """Google Maps autocomplete completer for QLineEdit."""
 
-    def __init__(self, gmaps: googlemaps.Client, debounce_delay: int = 2000, parent=None):
+    def __init__(
+        self, gmaps: googlemaps.Client, debounce_delay: int = 2000, parent=None
+    ):
         """Initialize the completer.
 
         Args:
@@ -104,7 +105,9 @@ class GoogleMapsCompleter(QCompleter):
         # Start new worker thread
         self.current_worker = GoogleMapsLookupWorker(self.gmaps, text, request_id)
         self.current_worker.results_ready.connect(
-            lambda req_id, predictions: self._on_results_ready(text, req_id, predictions)
+            lambda req_id, predictions: self._on_results_ready(
+                text, req_id, predictions
+            )
         )
         self.current_worker.error_occurred.connect(self._on_error)
         self.current_worker.start()

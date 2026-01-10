@@ -23,7 +23,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from shippy_gui.printing.printer_manager import get_available_printers, get_default_printer
+from shippy_gui.printing.printer_manager import (
+    get_available_printers,
+    get_default_printer,
+)
 from shippy_gui.core.server import Server
 from shippy_gui.core.models import Config
 from shippy_gui.core.addresses import AddressParser
@@ -64,7 +67,10 @@ class ShippingTab(QWidget):
         try:
             config_parser = configparser.ConfigParser()
             config_parser.read(self.config_path)
-            config_dict = {section: dict(config_parser[section]) for section in config_parser.sections()}
+            config_dict = {
+                section: dict(config_parser[section])
+                for section in config_parser.sections()
+            }
             self.config = Config.model_validate(config_dict)
             self.server = Server.from_config(self.config.ibp)
 
@@ -104,7 +110,9 @@ class ShippingTab(QWidget):
         )
         inmate_layout.addWidget(self.inmate_input, 1)
         self.inmate_lookup_button = QPushButton("Lookup")
-        self.inmate_lookup_button.setToolTip("Search for inmate and load their name and unit address")
+        self.inmate_lookup_button.setToolTip(
+            "Search for inmate and load their name and unit address"
+        )
         self.inmate_lookup_button.clicked.connect(self._lookup_inmate)
         inmate_layout.addWidget(self.inmate_lookup_button)
         lookup_layout.addLayout(inmate_layout)
@@ -126,7 +134,9 @@ class ShippingTab(QWidget):
         )
         address_search_layout.addWidget(self.address_search_input, 1)
         self.address_search_button = QPushButton("Load")
-        self.address_search_button.setToolTip("Parse selected address and load into fields below")
+        self.address_search_button.setToolTip(
+            "Parse selected address and load into fields below"
+        )
         self.address_search_button.clicked.connect(self._load_address)
         address_search_layout.addWidget(self.address_search_button)
         lookup_layout.addLayout(address_search_layout)
@@ -148,7 +158,9 @@ class ShippingTab(QWidget):
         )
         unit_lookup_layout.addWidget(self.unit_input, 1)
         self.unit_lookup_button = QPushButton("Load")
-        self.unit_lookup_button.setToolTip("Load unit address with 'ATTN: Mailroom Staff' as recipient")
+        self.unit_lookup_button.setToolTip(
+            "Load unit address with 'ATTN: Mailroom Staff' as recipient"
+        )
         self.unit_lookup_button.clicked.connect(self._load_unit)
         unit_lookup_layout.addWidget(self.unit_lookup_button)
         lookup_layout.addLayout(unit_lookup_layout)
@@ -162,7 +174,9 @@ class ShippingTab(QWidget):
 
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Recipient name")
-        self.name_input.setToolTip("Recipient's full name or 'ATTN: Mailroom Staff' for unit shipments")
+        self.name_input.setToolTip(
+            "Recipient's full name or 'ATTN: Mailroom Staff' for unit shipments"
+        )
         address_form.addRow("Name:", self.name_input)
 
         self.company_input = QLineEdit()
@@ -204,11 +218,15 @@ class ShippingTab(QWidget):
         self.weight_input.setRange(1, 70)
         self.weight_input.setValue(1)
         self.weight_input.setSuffix(" lbs")
-        self.weight_input.setToolTip("Package weight in pounds (1-70 lbs for Library Mail rate)")
+        self.weight_input.setToolTip(
+            "Package weight in pounds (1-70 lbs for Library Mail rate)"
+        )
         shipment_form.addRow("Weight:", self.weight_input)
 
         self.printer_combo = QComboBox()
-        self.printer_combo.setToolTip("Select printer for shipping label (4x6 label size)")
+        self.printer_combo.setToolTip(
+            "Select printer for shipping label (4x6 label size)"
+        )
         shipment_form.addRow("Printer:", self.printer_combo)
 
         layout.addLayout(shipment_form)
@@ -273,7 +291,11 @@ class ShippingTab(QWidget):
                 # result is a list of (jurisdiction, inmate_data) tuples
                 options = []
                 for jurisdiction, inmate in result:
-                    unit_name = inmate.get("unit", {}).get("name", "Unknown Unit") if inmate.get("unit") else "No Unit"
+                    unit_name = (
+                        inmate.get("unit", {}).get("name", "Unknown Unit")
+                        if inmate.get("unit")
+                        else "No Unit"
+                    )
                     first_name = inmate.get("first_name", "")
                     last_name = inmate.get("last_name", "")
                     name = f"{first_name} {last_name}".strip() or "Unknown"
@@ -293,7 +315,9 @@ class ShippingTab(QWidget):
                     if selected:
                         jurisdiction, inmate = selected
                         self._populate_from_inmate(inmate)
-                        self._set_status(f"Loaded inmate from {jurisdiction}", "success")
+                        self._set_status(
+                            f"Loaded inmate from {jurisdiction}", "success"
+                        )
                 else:
                     self._set_status("Lookup cancelled", "warning")
             else:
@@ -344,7 +368,9 @@ class ShippingTab(QWidget):
             return
 
         # Set up autocomplete with 500ms debounce (balance between responsiveness and API usage)
-        setup_google_maps_autocomplete(self.address_search_input, self.gmaps, debounce_delay=500)
+        setup_google_maps_autocomplete(
+            self.address_search_input, self.gmaps, debounce_delay=500
+        )
 
         # Note: Don't connect activated signal - only load when button is clicked
 
@@ -431,12 +457,14 @@ class ShippingTab(QWidget):
 
             # Check if address verification failed
             required_fields = ["street1", "city", "state", "zipcode"]
-            missing_fields = [field for field in required_fields if field not in address_parts]
+            missing_fields = [
+                field for field in required_fields if field not in address_parts
+            ]
 
             if missing_fields:
                 self._set_status(
                     f"Address incomplete - missing: {', '.join(missing_fields)}",
-                    "warning"
+                    "warning",
                 )
             else:
                 self._set_status("Address loaded successfully", "success")
@@ -587,7 +615,9 @@ class ShippingTab(QWidget):
 
         # Connect signals
         self.shipment_worker.progress.connect(lambda msg: self._set_status(msg, "info"))
-        self.shipment_worker.warning.connect(lambda msg: self._set_status(msg, "warning"))
+        self.shipment_worker.warning.connect(
+            lambda msg: self._set_status(msg, "warning")
+        )
         self.shipment_worker.success.connect(self._on_shipment_success)
         self.shipment_worker.error.connect(self._on_shipment_error)
         self.shipment_worker.finished.connect(self._on_shipment_finished)

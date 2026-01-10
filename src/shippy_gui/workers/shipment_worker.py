@@ -110,7 +110,9 @@ class ShipmentWorker(QThread):
                 try:
                     self.progress.emit("Requesting refund...")
                     self.easypost_client.shipment.refund(self.shipment.id)
-                    self.error.emit(f"Printing failed. Refund requested. Error: {str(e)}")
+                    self.error.emit(
+                        f"Printing failed. Refund requested. Error: {str(e)}"
+                    )
                 except Exception as refund_error:
                     self.error.emit(
                         f"Printing failed and refund failed. Error: {str(e)}. Refund error: {str(refund_error)}"

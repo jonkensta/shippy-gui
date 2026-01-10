@@ -120,7 +120,10 @@ class SettingsDialog(QDialog):
             config_parser.read(self.config_path)
 
             # Convert to dict for Pydantic validation
-            config_dict = {section: dict(config_parser[section]) for section in config_parser.sections()}
+            config_dict = {
+                section: dict(config_parser[section])
+                for section in config_parser.sections()
+            }
             config = Config.model_validate(config_dict)
 
             # Populate form fields
