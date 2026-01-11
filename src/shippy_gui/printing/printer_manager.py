@@ -224,9 +224,6 @@ def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image
             # Printer not found, return original
             return img
 
-        # Get printer attributes
-        printer_attrs = printers[printer_name]
-
         # Try to get page size from printer
         # CUPS uses points (1/72 inch) for dimensions
         # Common sizes: Letter = 612x792 pts, Legal = 612x1008 pts
