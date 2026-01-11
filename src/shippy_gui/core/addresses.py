@@ -3,7 +3,7 @@
 import json
 import os
 
-import googlemaps  # type: ignore
+import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
 
 
 class AddressParser:

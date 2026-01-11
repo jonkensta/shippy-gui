@@ -2,10 +2,8 @@
 
 import configparser
 import os
-from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
+from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
@@ -20,7 +18,7 @@ from pydantic import ValidationError
 from shippy_gui.core.models import Config
 
 
-class SettingsDialog(QDialog):
+class SettingsDialog(QDialog):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Dialog for editing application settings."""
 
     def __init__(self, config_path: str, parent=None):
@@ -35,7 +33,7 @@ class SettingsDialog(QDialog):
         self._init_ui()
         self._load_config()
 
-    def _init_ui(self):
+    def _init_ui(self):  # pylint: disable=too-many-statements
         """Initialize the user interface."""
         self.setWindowTitle("Settings")
         self.setMinimumWidth(500)
@@ -143,7 +141,7 @@ class SettingsDialog(QDialog):
                 "Config Validation Error",
                 f"Error loading configuration:\n\n{str(e)}",
             )
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             QMessageBox.critical(
                 self,
                 "Config Load Error",
@@ -203,7 +201,7 @@ class SettingsDialog(QDialog):
                 "Validation Error",
                 f"Please fix the following errors:\n\n{str(e)}",
             )
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             QMessageBox.critical(
                 self,
                 "Save Error",

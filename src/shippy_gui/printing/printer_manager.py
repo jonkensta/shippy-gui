@@ -17,10 +17,9 @@ def get_available_printers() -> list[str]:
 
     if system == "Linux":
         return _get_linux_printers()
-    elif system == "Windows":
+    if system == "Windows":
         return _get_windows_printers()
-    else:
-        return []
+    return []
 
 
 def get_default_printer() -> Optional[str]:
@@ -33,10 +32,9 @@ def get_default_printer() -> Optional[str]:
 
     if system == "Linux":
         return _get_linux_default_printer()
-    elif system == "Windows":
+    if system == "Windows":
         return _get_windows_default_printer()
-    else:
-        return None
+    return None
 
 
 def _get_linux_printers() -> list[str]:
@@ -45,16 +43,16 @@ def _get_linux_printers() -> list[str]:
 
     # Try using pycups first (more reliable)
     try:
-        import cups
+        import cups  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
 
-        conn = cups.Connection()
+        conn = cups.Connection()  # pylint: disable=c-extension-no-member
         printers_dict = conn.getPrinters()
         printers = list(printers_dict.keys())
         return printers
     except ImportError:
         # pycups not available, fall back to lpstat
         pass
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
         # CUPS connection failed, fall back to lpstat
         pass
 
@@ -65,6 +63,7 @@ def _get_linux_printers() -> list[str]:
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():
@@ -73,7 +72,7 @@ def _get_linux_printers() -> list[str]:
                     parts = line.split()
                     if len(parts) >= 2:
                         printers.append(parts[1])
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):  # pylint: disable=broad-exception-caught
         pass
 
     return printers
@@ -82,13 +81,13 @@ def _get_linux_printers() -> list[str]:
 def _get_linux_default_printer() -> Optional[str]:
     """Get default printer on Linux."""
     try:
-        import cups
+        import cups  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
 
-        conn = cups.Connection()
+        conn = cups.Connection()  # pylint: disable=c-extension-no-member
         return conn.getDefault()
     except ImportError:
         pass
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
         pass
 
     # Fallback to lpstat
@@ -98,13 +97,14 @@ def _get_linux_default_printer() -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         )
         if result.returncode == 0:
             # Format: "system default destination: PrinterName"
             line = result.stdout.strip()
             if ":" in line:
                 return line.split(":")[-1].strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):  # pylint: disable=broad-exception-caught
         pass
 
     return None
@@ -115,7 +115,7 @@ def _get_windows_printers() -> list[str]:
     printers = []
 
     try:
-        import win32print
+        import win32print  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
 
         # Enumerate all printers
         printer_info = win32print.EnumPrinters(
@@ -125,7 +125,7 @@ def _get_windows_printers() -> list[str]:
     except ImportError:
         # win32print not available
         pass
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
         pass
 
     return printers
@@ -134,12 +134,12 @@ def _get_windows_printers() -> list[str]:
 def _get_windows_default_printer() -> Optional[str]:
     """Get default printer on Windows."""
     try:
-        import win32print
+        import win32print  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
 
         return win32print.GetDefaultPrinter()
     except ImportError:
         pass
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
         pass
 
     return None
@@ -192,6 +192,7 @@ def _print_image_linux(img: Image.Image, printer_name: str) -> None:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                check=False,
             )
 
             if result.returncode != 0:
@@ -214,9 +215,9 @@ def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image
         Full-page image with scaled label centered, or original if scaling info unavailable
     """
     try:
-        import cups
+        import cups  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
 
-        conn = cups.Connection()
+        conn = cups.Connection()  # pylint: disable=c-extension-no-member
         printers = conn.getPrinters()
 
         if printer_name not in printers:
@@ -229,7 +230,8 @@ def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image
         # Try to get page size from printer
         # CUPS uses points (1/72 inch) for dimensions
         # Common sizes: Letter = 612x792 pts, Legal = 612x1008 pts
-        ppd_name = printer_attrs.get("printer-make-and-model", "")
+        # Note: printer-make-and-model could be used for PPD lookup but is not currently used
+        _ = printer_attrs.get("printer-make-and-model", "")
 
         # Get default media size
         # This is a simplified approach - full PPD parsing would be more accurate
@@ -278,7 +280,7 @@ def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image
     except ImportError:
         # pycups not available, return original and let lp handle it
         pass
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
         # Any error in scaling, return original
         pass
 
@@ -293,9 +295,8 @@ def _print_image_windows(img: Image.Image, printer_name: str) -> None:
         printer_name: Name of the printer to use
     """
     try:
-        import win32print
-        import win32ui
-        from PIL import ImageWin
+        import win32ui  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
+        from PIL import ImageWin  # pylint: disable=import-outside-toplevel
     except ImportError:
         # Fallback to powershell if win32 modules not available
         _print_image_windows_fallback(img)

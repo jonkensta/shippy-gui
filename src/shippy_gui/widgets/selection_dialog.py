@@ -1,6 +1,8 @@
 """Dialog for selecting from multiple options."""
 
-from PySide6.QtWidgets import (
+from typing import Any
+
+from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
@@ -9,14 +11,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 
-class SelectionDialog(QDialog):
+class SelectionDialog(QDialog):  # pylint: disable=too-few-public-methods
     """Dialog for selecting one option from multiple choices."""
 
     def __init__(
-        self, title: str, message: str, options: list[tuple[str, any]], parent=None
+        self, title: str, message: str, options: list[tuple[str, Any]], parent=None
     ):
         """Initialize the selection dialog.
 
@@ -30,7 +32,7 @@ class SelectionDialog(QDialog):
         self.selected_data = None
         self._init_ui(title, message, options)
 
-    def _init_ui(self, title: str, message: str, options: list[tuple[str, any]]):
+    def _init_ui(self, title: str, message: str, options: list[tuple[str, Any]]):
         """Initialize the user interface."""
         self.setWindowTitle(title)
         self.setModal(True)

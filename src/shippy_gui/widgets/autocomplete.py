@@ -1,11 +1,11 @@
 """Google Maps autocomplete widget for Qt."""
 
-import googlemaps
-from PySide6.QtCore import QStringListModel, Qt, QThread, QTimer, Signal
-from PySide6.QtWidgets import QCompleter, QLineEdit
+import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
+from PySide6.QtCore import QStringListModel, Qt, QThread, QTimer, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtWidgets import QCompleter, QLineEdit  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 
-class GoogleMapsLookupWorker(QThread):
+class GoogleMapsLookupWorker(QThread):  # pylint: disable=too-few-public-methods
     """Worker thread for Google Maps API calls."""
 
     results_ready = Signal(int, list)  # (request_id, list of address strings)
@@ -35,7 +35,7 @@ class GoogleMapsLookupWorker(QThread):
             self.error_occurred.emit(self.request_id, str(e))
 
 
-class GoogleMapsCompleter(QCompleter):
+class GoogleMapsCompleter(QCompleter):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Google Maps autocomplete completer for QLineEdit."""
 
     def __init__(
@@ -51,8 +51,9 @@ class GoogleMapsCompleter(QCompleter):
         super().__init__(parent)
         self.gmaps = gmaps
         self.debounce_delay = debounce_delay
-        self.cache = {}
+        self.cache: dict[str, list[str]] = {}
         self.current_worker = None
+        self.current_text = ""
         self.next_request_id = 0
         self.current_request_id = -1
 

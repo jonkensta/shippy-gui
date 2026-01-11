@@ -3,17 +3,17 @@
 import urllib.request
 import tempfile
 import os
-from pathlib import Path
+from typing import Optional
 
-import easypost
+import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
 from PIL import Image
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.shipping import build_address, build_shipment
 from shippy_gui.printing.printer_manager import print_image
 
 
-class ShipmentWorker(QThread):
+class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
     """Worker thread for async shipment creation and printing."""
 
     # Signals
@@ -22,14 +22,14 @@ class ShipmentWorker(QThread):
     error = Signal(str)  # Error message
     warning = Signal(str)  # Warning message (non-blocking)
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         easypost_client: easypost.EasyPostClient,
         from_address_dict: dict,
         to_address_dict: dict,
         weight_lbs: int,
         printer_name: str,
-        logo_path: str = None,
+        logo_path: Optional[str] = None,
     ):
         """Initialize the shipment worker.
 
@@ -104,7 +104,7 @@ class ShipmentWorker(QThread):
                 f"Label printed successfully! Tracking: {self.shipment.tracking_code}"
             )
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             # Refund the shipment if we created one
             if self.shipment:
                 try:
@@ -113,9 +113,10 @@ class ShipmentWorker(QThread):
                     self.error.emit(
                         f"Printing failed. Refund requested. Error: {str(e)}"
                     )
-                except Exception as refund_error:
+                except Exception as refund_error:  # pylint: disable=broad-exception-caught
                     self.error.emit(
-                        f"Printing failed and refund failed. Error: {str(e)}. Refund error: {str(refund_error)}"
+                        f"Printing failed and refund failed. Error: {str(e)}. "
+                        f"Refund error: {str(refund_error)}"
                     )
             else:
                 self.error.emit(f"Shipment creation failed: {str(e)}")

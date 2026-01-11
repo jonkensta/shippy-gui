@@ -3,11 +3,11 @@
 import configparser
 import os
 from pathlib import Path
+from typing import Optional
 
-import easypost
-import googlemaps
-from PIL import Image
-from PySide6.QtWidgets import (
+import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
+import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
+from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QCompleter,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.printing.printer_manager import (
     get_available_printers,
@@ -35,10 +35,10 @@ from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
 from shippy_gui.workers.shipment_worker import ShipmentWorker
 
 
-class ShippingTab(QWidget):
+class ShippingTab(QWidget):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Tab for unified shipping with optional inmate/address lookup."""
 
-    def __init__(self, config_path: str = None, parent=None):
+    def __init__(self, config_path: Optional[str] = None, parent=None):
         """Initialize the shipping tab.
 
         Args:
@@ -53,7 +53,7 @@ class ShippingTab(QWidget):
         self.easypost_client = None
         self.config = None
         self.logo_path = None
-        self.units_map = {}  # Map of unit name (uppercase) -> composite ID
+        self.units_map: dict[str, str] = {}  # Map of unit name (uppercase) -> composite ID
         self.shipment_worker = None
         self._load_config()
         self._load_logo()
@@ -80,7 +80,7 @@ class ShippingTab(QWidget):
 
             # Initialize EasyPost client
             self.easypost_client = easypost.EasyPostClient(self.config.easypost.apikey)
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             # Server/gmaps/easypost will be None if config fails to load
             print(f"Failed to load config: {e}")
 
@@ -91,7 +91,7 @@ class ShippingTab(QWidget):
         if logo_path.exists():
             self.logo_path = str(logo_path)
 
-    def _init_ui(self):
+    def _init_ui(self):  # pylint: disable=too-many-statements
         """Initialize the user interface."""
         layout = QVBoxLayout()
 
@@ -266,7 +266,7 @@ class ShippingTab(QWidget):
             index = printers.index(default_printer)
             self.printer_combo.setCurrentIndex(index)
 
-    def _lookup_inmate(self):
+    def _lookup_inmate(self):  # pylint: disable=too-many-locals
         """Look up inmate and populate address fields."""
         inmate_id = self.inmate_input.text().strip()
         if not inmate_id:
@@ -327,7 +327,7 @@ class ShippingTab(QWidget):
 
         except ValueError as e:
             self._set_status(str(e), "error")
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             QMessageBox.critical(
                 self,
                 "Lookup Error",
@@ -393,7 +393,7 @@ class ShippingTab(QWidget):
             completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
             self.unit_input.setCompleter(completer)
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"Failed to load units: {e}")
 
     def _clear_recipient_fields(self):
@@ -432,7 +432,8 @@ class ShippingTab(QWidget):
                 QMessageBox.warning(
                     self,
                     "Address Parse Error",
-                    f"Could not parse the selected address:\n\n{search_query}\n\nPlease try a different address or enter manually.",
+                    f"Could not parse the selected address:\n\n{search_query}\n\n"
+                    "Please try a different address or enter manually.",
                 )
                 return
 
@@ -469,7 +470,7 @@ class ShippingTab(QWidget):
             else:
                 self._set_status("Address loaded successfully", "success")
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             self._set_status("Address search failed", "error")
             QMessageBox.critical(
                 self,
@@ -490,7 +491,8 @@ class ShippingTab(QWidget):
             QMessageBox.warning(
                 self,
                 "Invalid Unit",
-                f"'{unit_name}' is not a recognized unit.\n\nPlease select from the autocomplete suggestions.",
+                f"'{unit_name}' is not a recognized unit.\n\n"
+                "Please select from the autocomplete suggestions.",
             )
             return
 
@@ -524,7 +526,7 @@ class ShippingTab(QWidget):
 
             self._set_status(f"Loaded address for {unit_name}", "success")
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             self._set_status("Failed to fetch unit address", "error")
             QMessageBox.critical(
                 self,
@@ -532,7 +534,7 @@ class ShippingTab(QWidget):
                 f"Error fetching address for {unit_name}:\n\n{str(e)}",
             )
 
-    def _create_label(self):
+    def _create_label(self):  # pylint: disable=too-many-return-statements
         """Create and print shipping label."""
         # Validate required fields
         if not self.name_input.text().strip():

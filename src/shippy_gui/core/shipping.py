@@ -1,8 +1,8 @@
 """Postage convenience functions."""
 
-from easypost import EasyPostClient
-from easypost.models import Address as EasyPostAddress
-from easypost.models import Shipment as EasyPostShipment
+from easypost import EasyPostClient  # type: ignore[import-not-found] # pylint: disable=import-error
+from easypost.models import Address as EasyPostAddress  # type: ignore[import-not-found] # pylint: disable=import-error
+from easypost.models import Shipment as EasyPostShipment  # type: ignore[import-not-found] # pylint: disable=import-error
 
 
 def build_address(client: EasyPostClient, **kwargs) -> EasyPostAddress:

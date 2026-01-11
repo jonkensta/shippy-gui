@@ -1,20 +1,18 @@
 """Main window for shippy-gui application."""
 
 import os
-from pathlib import Path
-
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QStatusBar
-from PySide6.QtGui import QAction
+from typing import Optional
+from PySide6.QtWidgets import QMainWindow, QStatusBar  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtGui import QAction  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.tabs.shipping_tab import ShippingTab
 from shippy_gui.settings_dialog import SettingsDialog
 
 
-class MainWindow(QMainWindow):
+class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
     """Main application window for shipping label generation."""
 
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: Optional[str] = None):
         """Initialize the main window.
 
         Args:

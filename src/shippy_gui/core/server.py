@@ -3,7 +3,7 @@
 from typing import Any, cast
 from urllib.parse import urljoin, quote
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from .models import IbpConfig
 
