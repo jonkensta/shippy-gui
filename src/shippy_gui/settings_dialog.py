@@ -1,4 +1,5 @@
 """Settings dialog for shippy-gui configuration."""
+# pylint: disable=duplicate-code  # Common config loading and button layout patterns
 
 import configparser
 import os

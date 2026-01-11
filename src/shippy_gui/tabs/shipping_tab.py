@@ -1,4 +1,5 @@
 """Unified shipping tab with inmate lookup and manual address entry."""
+# pylint: disable=duplicate-code  # Common config loading pattern
 
 import configparser
 import os

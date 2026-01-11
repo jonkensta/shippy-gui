@@ -199,12 +199,12 @@ def _print_image_linux(img: Image.Image, printer_name: str) -> None:
                 raise RuntimeError(f"Print command failed: {result.stderr}")
 
         finally:
-            import os
+            import os  # pylint: disable=import-outside-toplevel
 
             os.remove(tmpfile.name)
 
 
-def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image.Image:
+def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image.Image:  # pylint: disable=too-many-locals
     """Scale image to fit printer's printable area and center it on the page.
 
     Args:
@@ -287,7 +287,7 @@ def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image
     return img
 
 
-def _print_image_windows(img: Image.Image, printer_name: str) -> None:
+def _print_image_windows(img: Image.Image, printer_name: str) -> None:  # pylint: disable=too-many-locals
     """Print image on Windows using win32print.
 
     Args:
@@ -358,6 +358,6 @@ def _print_image_windows_fallback(img: Image.Image) -> None:
             subprocess.check_call(["powershell", "-c", tmpfile.name])
 
         finally:
-            import os
+            import os  # pylint: disable=import-outside-toplevel
 
             os.remove(tmpfile.name)
