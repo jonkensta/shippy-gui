@@ -72,7 +72,7 @@ def _get_linux_printers() -> list[str]:
                     parts = line.split()
                     if len(parts) >= 2:
                         printers.append(parts[1])
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):  # pylint: disable=broad-exception-caught
+    except Exception:  # pylint: disable=broad-exception-caught
         pass
 
     return printers
@@ -104,7 +104,7 @@ def _get_linux_default_printer() -> Optional[str]:
             line = result.stdout.strip()
             if ":" in line:
                 return line.split(":")[-1].strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):  # pylint: disable=broad-exception-caught
+    except Exception:  # pylint: disable=broad-exception-caught
         pass
 
     return None
@@ -231,7 +231,7 @@ def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image
         # CUPS uses points (1/72 inch) for dimensions
         # Common sizes: Letter = 612x792 pts, Legal = 612x1008 pts
         # Note: printer-make-and-model could be used for PPD lookup but is not currently used
-        _ = printer_attrs.get("printer-make-and-model", "")
+        # printer_attrs.get("printer-make-and-model", "")
 
         # Get default media size
         # This is a simplified approach - full PPD parsing would be more accurate
