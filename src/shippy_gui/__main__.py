@@ -1,6 +1,7 @@
 """Entry point for shippy-gui application."""
 
 import os
+import shutil
 import sys
 
 from PySide6.QtWidgets import QApplication  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
@@ -15,7 +16,13 @@ def main():
     app.setApplicationName("Shippy GUI")
     app.setOrganizationName("Inside Books Project")
 
-    config_path = os.path.join(os.getcwd(), "config.ini")
+    cwd = os.getcwd()
+    config_path = os.path.join(cwd, "config.ini")
+    example_config_path = os.path.join(cwd, "config.example.ini")
+
+    # Initialize config from example if missing
+    if not os.path.exists(config_path) and os.path.exists(example_config_path):
+        shutil.copy2(example_config_path, config_path)
 
     # Apply configured font size
     font_size = get_font_size_from_config(config_path)
