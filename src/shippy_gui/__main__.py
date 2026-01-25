@@ -1,7 +1,6 @@
 """Entry point for shippy-gui application."""
 
 import os
-import shutil
 import sys
 
 from PySide6.QtWidgets import QApplication  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
@@ -20,14 +19,17 @@ def main():
     config_path = os.path.join(cwd, "config.ini")
     example_config_path = os.path.join(cwd, "config.example.ini")
 
-    # Initialize config from example if missing
-    if not os.path.exists(config_path) and os.path.exists(example_config_path):
-        shutil.copy2(example_config_path, config_path)
+    # Use existing config.ini if it exists, otherwise fall back to example for loading
+    active_config_path = (
+        config_path if os.path.exists(config_path) else example_config_path
+    )
 
     # Apply configured font size
-    font_size = get_font_size_from_config(config_path)
+    font_size = get_font_size_from_config(active_config_path)
     apply_font_size(app, font_size)
 
+    # Note: We pass the intended config_path to MainWindow so that when the user
+    # saves settings, they are written to config.ini, not config.example.ini.
     window = MainWindow(config_path=config_path)
     window.show()
 

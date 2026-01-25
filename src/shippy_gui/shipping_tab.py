@@ -47,7 +47,16 @@ class ShippingTab(
             parent: Parent widget
         """
         super().__init__(parent)
-        self.config_path = config_path or os.path.join(os.getcwd(), "config.ini")
+        cwd = os.getcwd()
+        self.config_path = config_path or os.path.join(cwd, "config.ini")
+
+        # Fallback to example if the target config doesn't exist
+        self.active_load_path = self.config_path
+        if not os.path.exists(self.config_path):
+            example_path = os.path.join(cwd, "config.example.ini")
+            if os.path.exists(example_path):
+                self.active_load_path = example_path
+
         self.gmaps = None
         self.address_parser = None
         self.easypost_client = None
@@ -64,7 +73,7 @@ class ShippingTab(
         """Load configuration."""
         try:
             config_parser = configparser.ConfigParser()
-            config_parser.read(self.config_path)
+            config_parser.read(self.active_load_path)
             config_dict = {
                 section: dict(config_parser[section])
                 for section in config_parser.sections()

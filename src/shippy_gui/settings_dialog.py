@@ -35,6 +35,15 @@ class SettingsDialog(
         """
         super().__init__(parent)
         self.config_path = config_path
+
+        # Fallback to example if the target config doesn't exist
+        self.active_load_path = self.config_path
+        if not os.path.exists(self.config_path):
+            cwd = os.getcwd()
+            example_path = os.path.join(cwd, "config.example.ini")
+            if os.path.exists(example_path):
+                self.active_load_path = example_path
+
         self._init_ui()
         self._load_config()
 
@@ -112,18 +121,12 @@ class SettingsDialog(
 
     def _load_config(self):
         """Load configuration from config.ini file."""
-        if not os.path.exists(self.config_path):
-            QMessageBox.warning(
-                self,
-                "Config Not Found",
-                f"Configuration file not found at: {self.config_path}\n\n"
-                "Please create a config.ini file based on the template.",
-            )
+        if not os.path.exists(self.active_load_path):
             return
 
         try:
             config_parser = configparser.ConfigParser()
-            config_parser.read(self.config_path)
+            config_parser.read(self.active_load_path)
 
             # Convert to dict for Pydantic validation
             config_dict = {
