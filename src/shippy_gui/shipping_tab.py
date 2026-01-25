@@ -228,11 +228,12 @@ class ShippingTab(
             return
 
         # Set up autocomplete with 500ms debounce (balance between responsiveness and API usage)
-        setup_google_maps_autocomplete(
+        completer = setup_google_maps_autocomplete(
             self.address_search_input, self.gmaps, debounce_delay=500
         )
 
-        # Note: Don't connect activated signal - only load when button is clicked
+        # Automatically load address when selected from suggestions
+        completer.activated.connect(self._load_address)
 
     def _clear_recipient_fields(self):
         """Clear all recipient address fields."""
@@ -244,9 +245,14 @@ class ShippingTab(
         self.state_input.clear()
         self.zipcode_input.clear()
 
-    def _load_address(self):
-        """Parse selected address and populate address fields."""
-        search_query = self.address_search_input.text().strip()
+    def _load_address(self, selected_address: Optional[str] = None):
+        """Parse selected address and populate address fields.
+
+        Args:
+            selected_address: Optional address string from autocomplete.
+                            If not provided, uses the current text in search input.
+        """
+        search_query = selected_address or self.address_search_input.text().strip()
         if not search_query:
             self._set_status("Please enter an address to search", "error")
             return
