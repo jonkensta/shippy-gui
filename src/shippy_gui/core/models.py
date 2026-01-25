@@ -1,7 +1,7 @@
 """Pydantic models for configuration checking."""
 
 from typing import Optional
-from pydantic import BaseModel, HttpUrl, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class UiConfig(BaseModel):
@@ -18,12 +18,6 @@ class UiConfig(BaseModel):
         if v > 24:
             raise ValueError("Font size must be at most 24")
         return v
-
-
-class IbpConfig(BaseModel):
-    """Model for IBP configuration."""
-
-    url: HttpUrl
 
 
 class ReturnAddressConfig(BaseModel):
@@ -53,7 +47,6 @@ class Config(BaseModel):
     """Model for application configuration."""
 
     ui: Optional[UiConfig] = None
-    ibp: IbpConfig
     easypost: EasypostConfig
     googlemaps: GoogleMapsConfig
     return_address: ReturnAddressConfig

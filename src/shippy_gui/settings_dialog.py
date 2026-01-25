@@ -47,14 +47,6 @@ class SettingsDialog(
         # Main layout
         main_layout = QVBoxLayout()
 
-        # IBP Server section
-        ibp_group = QGroupBox("IBP Server")
-        ibp_layout = QFormLayout()
-        self.ibp_url_input = QLineEdit()
-        ibp_layout.addRow("URL:", self.ibp_url_input)
-        ibp_group.setLayout(ibp_layout)
-        main_layout.addWidget(ibp_group)
-
         # EasyPost API section
         easypost_group = QGroupBox("EasyPost API")
         easypost_layout = QFormLayout()
@@ -141,7 +133,6 @@ class SettingsDialog(
             config = Config.model_validate(config_dict)
 
             # Populate form fields
-            self.ibp_url_input.setText(str(config.ibp.url))
             self.easypost_key_input.setText(config.easypost.apikey)
             self.gmaps_key_input.setText(config.googlemaps.apikey)
             self.return_name_input.setText(config.return_address.name)
@@ -173,9 +164,6 @@ class SettingsDialog(
                 "ui": {
                     "font_size": self.font_size_input.value(),
                 },
-                "ibp": {
-                    "url": self.ibp_url_input.text().strip(),
-                },
                 "easypost": {
                     "apikey": self.easypost_key_input.text().strip(),
                 },
@@ -198,7 +186,6 @@ class SettingsDialog(
             # Write to config.ini
             config_parser = configparser.ConfigParser()
             config_parser["ui"] = {"font_size": str(config.get_font_size())}
-            config_parser["ibp"] = {"url": str(config.ibp.url)}
             config_parser["easypost"] = {"apikey": config.easypost.apikey}
             config_parser["googlemaps"] = {"apikey": config.googlemaps.apikey}
             config_parser["return_address"] = {

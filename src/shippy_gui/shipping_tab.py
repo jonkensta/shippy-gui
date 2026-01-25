@@ -1,4 +1,4 @@
-"""Unified shipping tab with inmate lookup and manual address entry."""
+"Unified shipping tab with manual address entry."
 
 # pylint: disable=duplicate-code  # Common config loading pattern
 
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QPushButton,
     QLabel,
     QMessageBox,
-    QCompleter,
 )
 from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
@@ -29,10 +28,8 @@ from shippy_gui.printing.printer_manager import (
     get_available_printers,
     get_default_printer,
 )
-from shippy_gui.core.server import Server
 from shippy_gui.core.models import Config
 from shippy_gui.core.addresses import AddressParser
-from shippy_gui.widgets.selection_dialog import SelectionDialog
 from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
 from shippy_gui.workers.shipment_worker import ShipmentWorker
 
@@ -40,7 +37,7 @@ from shippy_gui.workers.shipment_worker import ShipmentWorker
 class ShippingTab(
     QWidget
 ):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
-    """Tab for unified shipping with optional inmate/address lookup."""
+    """Tab for unified shipping with address lookup."""
 
     def __init__(self, config_path: Optional[str] = None, parent=None):
         """Initialize the shipping tab.
@@ -51,25 +48,20 @@ class ShippingTab(
         """
         super().__init__(parent)
         self.config_path = config_path or os.path.join(os.getcwd(), "config.ini")
-        self.server = None
         self.gmaps = None
         self.address_parser = None
         self.easypost_client = None
         self.config = None
         self.logo_path = None
-        self.units_map: dict[str, str] = (
-            {}
-        )  # Map of unit name (uppercase) -> composite ID
         self.shipment_worker = None
         self._load_config()
         self._load_logo()
         self._init_ui()
         self._load_printers()
         self._setup_autocomplete()
-        self._load_units()
 
     def _load_config(self):
-        """Load configuration and initialize server."""
+        """Load configuration."""
         try:
             config_parser = configparser.ConfigParser()
             config_parser.read(self.config_path)
@@ -78,7 +70,6 @@ class ShippingTab(
                 for section in config_parser.sections()
             }
             self.config = Config.model_validate(config_dict)
-            self.server = Server.from_config(self.config.ibp)
 
             # Initialize Google Maps client
             self.gmaps = googlemaps.Client(key=self.config.googlemaps.apikey)
@@ -87,7 +78,7 @@ class ShippingTab(
             # Initialize EasyPost client
             self.easypost_client = easypost.EasyPostClient(self.config.easypost.apikey)
         except Exception as e:  # pylint: disable=broad-exception-caught
-            # Server/gmaps/easypost will be None if config fails to load
+            # gmaps/easypost will be None if config fails to load
             print(f"Failed to load config: {e}")
 
     def _load_logo(self):
@@ -104,30 +95,6 @@ class ShippingTab(
         # Quick Lookup Section
         lookup_group = QGroupBox("Quick Lookup (optional)")
         lookup_layout = QVBoxLayout()
-
-        # Inmate Lookup
-        inmate_layout = QHBoxLayout()
-        inmate_layout.addWidget(QLabel("Inmate Lookup:"))
-        self.inmate_input = QLineEdit()
-        self.inmate_input.setPlaceholderText("Barcode, ID, or Request ID")
-        self.inmate_input.setToolTip(
-            "Enter inmate barcode (TEX-12345678-0), inmate ID (12345678), or request ID.\n"
-            "Searches both Texas and Federal jurisdictions."
-        )
-        inmate_layout.addWidget(self.inmate_input, 1)
-        self.inmate_lookup_button = QPushButton("Lookup")
-        self.inmate_lookup_button.setToolTip(
-            "Search for inmate and load their name and unit address"
-        )
-        self.inmate_lookup_button.clicked.connect(self._lookup_inmate)
-        inmate_layout.addWidget(self.inmate_lookup_button)
-        lookup_layout.addLayout(inmate_layout)
-
-        # OR separator
-        or_label = QLabel("- OR -")
-        or_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        or_label.setStyleSheet("color: #666; font-style: italic;")
-        lookup_layout.addWidget(or_label)
 
         # Address Search
         address_search_layout = QHBoxLayout()
@@ -147,30 +114,6 @@ class ShippingTab(
         address_search_layout.addWidget(self.address_search_button)
         lookup_layout.addLayout(address_search_layout)
 
-        # OR separator
-        or_label2 = QLabel("- OR -")
-        or_label2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        or_label2.setStyleSheet("color: #666; font-style: italic;")
-        lookup_layout.addWidget(or_label2)
-
-        # Unit Lookup
-        unit_lookup_layout = QHBoxLayout()
-        unit_lookup_layout.addWidget(QLabel("Unit Lookup:"))
-        self.unit_input = QLineEdit()
-        self.unit_input.setPlaceholderText("Start typing unit name...")
-        self.unit_input.setToolTip(
-            "Type a Texas prison unit name and select from autocomplete.\n"
-            "Click 'Load' to address the package to the unit mailroom."
-        )
-        unit_lookup_layout.addWidget(self.unit_input, 1)
-        self.unit_lookup_button = QPushButton("Load")
-        self.unit_lookup_button.setToolTip(
-            "Load unit address with 'ATTN: Mailroom Staff' as recipient"
-        )
-        self.unit_lookup_button.clicked.connect(self._load_unit)
-        unit_lookup_layout.addWidget(self.unit_lookup_button)
-        lookup_layout.addLayout(unit_lookup_layout)
-
         lookup_group.setLayout(lookup_layout)
         layout.addWidget(lookup_group)
 
@@ -180,9 +123,7 @@ class ShippingTab(
 
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Recipient name")
-        self.name_input.setToolTip(
-            "Recipient's full name or 'ATTN: Mailroom Staff' for unit shipments"
-        )
+        self.name_input.setToolTip("Recipient's full name")
         address_form.addRow("Name:", self.name_input)
 
         self.company_input = QLineEdit()
@@ -272,102 +213,6 @@ class ShippingTab(
             index = printers.index(default_printer)
             self.printer_combo.setCurrentIndex(index)
 
-    def _lookup_inmate(self):  # pylint: disable=too-many-locals
-        """Look up inmate and populate address fields."""
-        inmate_id = self.inmate_input.text().strip()
-        if not inmate_id:
-            self._set_status("Please enter a barcode, ID, or request ID", "error")
-            return
-
-        if not self.server:
-            QMessageBox.critical(
-                self,
-                "Configuration Error",
-                "Server not configured. Please check your config.ini file.",
-            )
-            return
-
-        self._set_status(f"Looking up inmate: {inmate_id}...", "info")
-
-        try:
-            result, strategy = self.server.find_inmate(inmate_id)
-
-            # Handle multiple matches
-            if strategy == "multiple_matches":
-                # result is a list of (jurisdiction, inmate_data) tuples
-                options = []
-                for jurisdiction, inmate in result:
-                    unit_name = (
-                        inmate.get("unit", {}).get("name", "Unknown Unit")
-                        if inmate.get("unit")
-                        else "No Unit"
-                    )
-                    first_name = inmate.get("first_name", "")
-                    last_name = inmate.get("last_name", "")
-                    name = f"{first_name} {last_name}".strip() or "Unknown"
-                    inmate_id_str = inmate.get("id", "")
-                    display = f"{jurisdiction} - {name} ({inmate_id_str}) - {unit_name}"
-                    options.append((display, (jurisdiction, inmate)))
-
-                dialog = SelectionDialog(
-                    "Multiple Inmates Found",
-                    "Please select the correct inmate:",
-                    options,
-                    self,
-                )
-
-                if dialog.exec():
-                    selected = dialog.get_selected()
-                    if selected:
-                        jurisdiction, inmate = selected
-                        self._populate_from_inmate(inmate)
-                        self._set_status(
-                            f"Loaded inmate from {jurisdiction}", "success"
-                        )
-                else:
-                    self._set_status("Lookup cancelled", "warning")
-            else:
-                # Single match - result is the inmate dict
-                self._populate_from_inmate(result)
-                self._set_status(f"Found inmate using {strategy}", "success")
-
-        except ValueError as e:
-            self._set_status(str(e), "error")
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            QMessageBox.critical(
-                self,
-                "Lookup Error",
-                f"Error looking up inmate:\n\n{str(e)}",
-            )
-            self._set_status("Lookup failed", "error")
-
-    def _populate_from_inmate(self, inmate: dict):
-        """Populate address fields from inmate data.
-
-        Args:
-            inmate: Inmate dict from server
-        """
-        # Clear all fields first
-        self._clear_recipient_fields()
-
-        # Populate name from inmate
-        first_name = inmate.get("first_name", "")
-        last_name = inmate.get("last_name", "")
-        name = f"{first_name} {last_name}".strip()
-        if name:
-            self.name_input.setText(name)
-        else:
-            self.name_input.setText(f"Inmate #{inmate.get('id', '')}")
-
-        # Populate address from unit
-        unit = inmate.get("unit")
-        if unit:
-            self.street1_input.setText(unit.get("street1", ""))
-            self.street2_input.setText(unit.get("street2", "") or "")
-            self.city_input.setText(unit.get("city", ""))
-            self.state_input.setText(unit.get("state", ""))
-            self.zipcode_input.setText(unit.get("zipcode", ""))
-
     def _setup_autocomplete(self):
         """Set up Google Maps autocomplete on address search field."""
         if not self.gmaps:
@@ -379,28 +224,6 @@ class ShippingTab(
         )
 
         # Note: Don't connect activated signal - only load when button is clicked
-
-    def _load_units(self):
-        """Load units list from server and set up autocomplete."""
-        if not self.server:
-            return
-
-        try:
-            # Fetch units (already filtered to Texas only)
-            self.units_map = self.server.unit_ids()
-
-            if not self.units_map:
-                return
-
-            # Set up autocomplete with unit names
-            unit_names = sorted(self.units_map.keys())
-            completer = QCompleter(unit_names, self.unit_input)
-            completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-            completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-            self.unit_input.setCompleter(completer)
-
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            print(f"Failed to load units: {e}")
 
     def _clear_recipient_fields(self):
         """Clear all recipient address fields."""
@@ -482,62 +305,6 @@ class ShippingTab(
                 self,
                 "Address Search Error",
                 f"Error parsing address:\n\n{str(e)}",
-            )
-
-    def _load_unit(self):
-        """Load unit address and populate address fields."""
-        unit_name = self.unit_input.text().strip().upper()
-        if not unit_name:
-            self._set_status("Please enter a unit name", "error")
-            return
-
-        # Check if unit exists in our map
-        if unit_name not in self.units_map:
-            self._set_status("Invalid unit name", "error")
-            QMessageBox.warning(
-                self,
-                "Invalid Unit",
-                f"'{unit_name}' is not a recognized unit.\n\n"
-                "Please select from the autocomplete suggestions.",
-            )
-            return
-
-        if not self.server:
-            QMessageBox.critical(
-                self,
-                "Configuration Error",
-                "Server not configured. Please check your config.ini file.",
-            )
-            return
-
-        # Get unit composite ID and fetch address
-        composite_id = self.units_map[unit_name]
-        self._set_status(f"Fetching address for {unit_name}...", "info")
-
-        try:
-            address_dict = self.server.unit_address(composite_id)
-
-            # Clear all fields first
-            self._clear_recipient_fields()
-
-            # Populate name field with "ATTN: Mailroom Staff"
-            self.name_input.setText(address_dict["name"])
-
-            # Populate address fields
-            self.street1_input.setText(address_dict["street1"])
-            self.street2_input.setText(address_dict.get("street2", ""))
-            self.city_input.setText(address_dict["city"])
-            self.state_input.setText(address_dict["state"])
-            self.zipcode_input.setText(address_dict["zipcode"])
-
-            self._set_status(f"Loaded address for {unit_name}", "success")
-
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            self._set_status("Failed to fetch unit address", "error")
-            QMessageBox.critical(
-                self,
-                "Unit Address Error",
-                f"Error fetching address for {unit_name}:\n\n{str(e)}",
             )
 
     def _create_label(self):  # pylint: disable=too-many-return-statements
@@ -642,9 +409,7 @@ class ShippingTab(
         self._set_status(message, "success")
 
         # Clear all input fields for next shipment
-        self.inmate_input.clear()
         self.address_search_input.clear()
-        self.unit_input.clear()
         self.name_input.clear()
         self.company_input.clear()
         self.street1_input.clear()
@@ -655,7 +420,7 @@ class ShippingTab(
         self.weight_input.setValue(1)
 
         # Focus on first input
-        self.inmate_input.setFocus()
+        self.address_search_input.setFocus()
 
     def _on_shipment_error(self, message: str):
         """Handle shipment error.
