@@ -102,7 +102,7 @@ class ShippingTab(
         layout = QVBoxLayout()
 
         # Quick Lookup Section
-        lookup_group = QGroupBox("Quick Lookup (optional)")
+        lookup_group = QGroupBox("Quick Lookup")
         lookup_layout = QVBoxLayout()
 
         # Address Search
@@ -111,16 +111,9 @@ class ShippingTab(
         self.address_search_input = QLineEdit()
         self.address_search_input.setPlaceholderText("Start typing address...")
         self.address_search_input.setToolTip(
-            "Type any US address and select from autocomplete suggestions.\n"
-            "Click 'Load' to parse and populate the address fields below."
+            "Type any US address and select a suggestion to populate the fields below."
         )
         address_search_layout.addWidget(self.address_search_input, 1)
-        self.address_search_button = QPushButton("Load")
-        self.address_search_button.setToolTip(
-            "Parse selected address and load into fields below"
-        )
-        self.address_search_button.clicked.connect(self._load_address)
-        address_search_layout.addWidget(self.address_search_button)
         lookup_layout.addLayout(address_search_layout)
 
         lookup_group.setLayout(lookup_layout)
@@ -299,6 +292,9 @@ class ShippingTab(
 
             if "zipcode" in address_parts:
                 self.zipcode_input.setText(address_parts["zipcode"])
+
+            # Clear search input after successful load
+            self.address_search_input.clear()
 
             # Check if address verification failed
             required_fields = ["street1", "city", "state", "zipcode"]
