@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QStatusBar  # type: ign
 
 from shippy_gui.core.font import apply_font_size, get_font_size_from_config
 from shippy_gui.settings_dialog import SettingsDialog
-from shippy_gui.tabs.shipping_tab import ShippingTab
+from shippy_gui.shipping_tab import ShippingTab
 
 
 class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods

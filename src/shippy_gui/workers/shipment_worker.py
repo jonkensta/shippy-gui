@@ -113,9 +113,8 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
                     self.error.emit(
                         f"Printing failed. Refund requested. Error: {str(e)}"
                     )
-                except (
-                    Exception
-                ) as refund_error:  # pylint: disable=broad-exception-caught
+                # pylint: disable-next=broad-exception-caught
+                except Exception as refund_error:
                     self.error.emit(
                         f"Printing failed and refund failed. Error: {str(e)}. "
                         f"Refund error: {str(refund_error)}"
