@@ -35,7 +35,9 @@ class GoogleMapsLookupWorker(QThread):  # pylint: disable=too-few-public-methods
             self.error_occurred.emit(self.request_id, str(e))
 
 
-class GoogleMapsCompleter(QCompleter):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
+class GoogleMapsCompleter(
+    QCompleter
+):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Google Maps autocomplete completer for QLineEdit."""
 
     def __init__(

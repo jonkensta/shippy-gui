@@ -1,4 +1,5 @@
 """Settings dialog for shippy-gui configuration."""
+
 # pylint: disable=duplicate-code  # Common config loading and button layout patterns
 
 import configparser
@@ -13,13 +14,16 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QLineEdit,
     QPushButton,
     QMessageBox,
+    QSpinBox,
 )
 from pydantic import ValidationError
 
 from shippy_gui.core.models import Config
 
 
-class SettingsDialog(QDialog):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
+class SettingsDialog(
+    QDialog
+):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Dialog for editing application settings."""
 
     def __init__(self, config_path: str, parent=None):
@@ -87,6 +91,17 @@ class SettingsDialog(QDialog):  # pylint: disable=too-few-public-methods,too-man
         return_addr_group.setLayout(return_addr_layout)
         main_layout.addWidget(return_addr_group)
 
+        # UI Settings section
+        ui_group = QGroupBox("User Interface")
+        ui_layout = QFormLayout()
+        self.font_size_input = QSpinBox()
+        self.font_size_input.setRange(8, 24)
+        self.font_size_input.setValue(11)
+        self.font_size_input.setSuffix(" pt")
+        ui_layout.addRow("Font Size:", self.font_size_input)
+        ui_group.setLayout(ui_layout)
+        main_layout.addWidget(ui_group)
+
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -135,6 +150,7 @@ class SettingsDialog(QDialog):  # pylint: disable=too-few-public-methods,too-man
             self.return_city_input.setText(config.return_address.city)
             self.return_state_input.setText(config.return_address.state)
             self.return_zipcode_input.setText(config.return_address.zipcode)
+            self.font_size_input.setValue(config.get_font_size())
 
         except ValidationError as e:
             QMessageBox.critical(
@@ -154,6 +170,9 @@ class SettingsDialog(QDialog):  # pylint: disable=too-few-public-methods,too-man
         try:
             # Build config dict from form inputs
             config_dict = {
+                "ui": {
+                    "font_size": self.font_size_input.value(),
+                },
                 "ibp": {
                     "url": self.ibp_url_input.text().strip(),
                 },
@@ -178,7 +197,8 @@ class SettingsDialog(QDialog):  # pylint: disable=too-few-public-methods,too-man
 
             # Write to config.ini
             config_parser = configparser.ConfigParser()
-            config_parser["ibp"] = {"url": config.ibp.url}
+            config_parser["ui"] = {"font_size": str(config.get_font_size())}
+            config_parser["ibp"] = {"url": str(config.ibp.url)}
             config_parser["easypost"] = {"apikey": config.easypost.apikey}
             config_parser["googlemaps"] = {"apikey": config.googlemaps.apikey}
             config_parser["return_address"] = {

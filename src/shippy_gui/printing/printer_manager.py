@@ -204,7 +204,9 @@ def _print_image_linux(img: Image.Image, printer_name: str) -> None:
             os.remove(tmpfile.name)
 
 
-def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image.Image:  # pylint: disable=too-many-locals
+def _scale_image_for_printer_linux(  # pylint: disable=too-many-locals
+    img: Image.Image, printer_name: str
+) -> Image.Image:
     """Scale image to fit printer's printable area and center it on the page.
 
     Args:
@@ -284,7 +286,9 @@ def _scale_image_for_printer_linux(img: Image.Image, printer_name: str) -> Image
     return img
 
 
-def _print_image_windows(img: Image.Image, printer_name: str) -> None:  # pylint: disable=too-many-locals
+def _print_image_windows(  # pylint: disable=too-many-locals
+    img: Image.Image, printer_name: str
+) -> None:
     """Print image on Windows using win32print.
 
     Args:

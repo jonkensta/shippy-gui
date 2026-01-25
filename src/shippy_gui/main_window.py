@@ -2,11 +2,13 @@
 
 import os
 from typing import Optional
-from PySide6.QtWidgets import QMainWindow, QStatusBar  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
-from PySide6.QtGui import QAction  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
-from shippy_gui.tabs.shipping_tab import ShippingTab
+from PySide6.QtGui import QAction  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtWidgets import QApplication, QMainWindow, QStatusBar  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+
+from shippy_gui.core.font import apply_font_size, get_font_size_from_config
 from shippy_gui.settings_dialog import SettingsDialog
+from shippy_gui.tabs.shipping_tab import ShippingTab
 
 
 class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
@@ -66,7 +68,16 @@ class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
         if dialog.exec():
             # Config was saved successfully
             self.status_bar.showMessage("Settings saved successfully", 3000)
+            # Reapply font size from updated config
+            self._apply_font_from_config()
             # Tabs can reload config if needed in future phases
         else:
             # Dialog was cancelled
             self.status_bar.showMessage("Settings cancelled", 3000)
+
+    def _apply_font_from_config(self):
+        """Apply font size from config to the application."""
+        app = QApplication.instance()
+        if app:
+            font_size = get_font_size_from_config(self.config_path)
+            apply_font_size(app, font_size)

@@ -1,4 +1,5 @@
 """Unified shipping tab with inmate lookup and manual address entry."""
+
 # pylint: disable=duplicate-code  # Common config loading pattern
 
 import configparser
@@ -36,7 +37,9 @@ from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
 from shippy_gui.workers.shipment_worker import ShipmentWorker
 
 
-class ShippingTab(QWidget):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
+class ShippingTab(
+    QWidget
+):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Tab for unified shipping with optional inmate/address lookup."""
 
     def __init__(self, config_path: Optional[str] = None, parent=None):
@@ -54,7 +57,9 @@ class ShippingTab(QWidget):  # pylint: disable=too-few-public-methods,too-many-i
         self.easypost_client = None
         self.config = None
         self.logo_path = None
-        self.units_map: dict[str, str] = {}  # Map of unit name (uppercase) -> composite ID
+        self.units_map: dict[str, str] = (
+            {}
+        )  # Map of unit name (uppercase) -> composite ID
         self.shipment_worker = None
         self._load_config()
         self._load_logo()

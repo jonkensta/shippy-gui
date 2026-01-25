@@ -1,4 +1,5 @@
 """Dialog for selecting from multiple options."""
+
 # pylint: disable=duplicate-code  # Common button layout pattern
 
 from typing import Any
