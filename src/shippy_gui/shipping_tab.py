@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QLabel,
     QMessageBox,
 )
-from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtCore import Qt, QTimer  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.printing.printer_manager import (
     get_available_printers,
@@ -294,7 +294,8 @@ class ShippingTab(
                 self.zipcode_input.setText(address_parts["zipcode"])
 
             # Clear search input after successful load
-            self.address_search_input.clear()
+            # Use singleShot to ensure it clears after QCompleter has finished updating the text
+            QTimer.singleShot(0, self.address_search_input.clear)
 
             # Check if address verification failed
             required_fields = ["street1", "city", "state", "zipcode"]
