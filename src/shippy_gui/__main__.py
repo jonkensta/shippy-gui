@@ -1,6 +1,5 @@
 """Entry point for shippy-gui application."""
 
-import os
 import sys
 
 from PySide6.QtWidgets import QApplication  # type: ignore[import-untyped] # pylint: disable=no-name-in-module

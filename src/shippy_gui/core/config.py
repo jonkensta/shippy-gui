@@ -49,7 +49,9 @@ def read_config_dict(path: str) -> dict:
     """Read a config file into a dictionary for validation."""
     config_parser = configparser.ConfigParser()
     config_parser.read(path)
-    return {section: dict(config_parser[section]) for section in config_parser.sections()}
+    return {
+        section: dict(config_parser[section]) for section in config_parser.sections()
+    }
 
 
 def load_config(path: str) -> Config:
