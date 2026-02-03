@@ -6,10 +6,10 @@ import tempfile
 from typing import Optional
 from PIL import Image, ImageQt
 
-from PySide6.QtPrintSupport import QPrintDialog, QPrinter  # type: ignore[import-untyped]
-from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped]
-from PySide6.QtGui import QPainter, QImage  # type: ignore[import-untyped]
-from PySide6.QtCore import Qt  # type: ignore[import-untyped]
+from PySide6.QtPrintSupport import QPrintDialog, QPrinter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtGui import QPainter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 
 def get_available_printers() -> list[str]:
@@ -370,7 +370,9 @@ def _print_image_windows_fallback(img: Image.Image) -> None:
 
 
 def print_image_with_dialog(
-    img: Image.Image, parent_widget: QWidget, preferred_printer_name: Optional[str] = None
+    img: Image.Image,
+    parent_widget: QWidget,
+    preferred_printer_name: Optional[str] = None,
 ) -> str:
     """Show system print dialog and print image if accepted.
 
