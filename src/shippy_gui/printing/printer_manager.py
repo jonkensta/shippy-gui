@@ -71,11 +71,9 @@ def _get_linux_printers() -> list[str]:
         printers = list(printers_dict.keys())
         return printers
     except ImportError:
-        # pycups not available, fall back to lpstat
-        pass
+        logger.debug("pycups not available, falling back to lpstat")
     except Exception:  # pylint: disable=broad-exception-caught
-        # CUPS connection failed, fall back to lpstat
-        pass
+        logger.debug("CUPS connection failed, falling back to lpstat", exc_info=True)
 
     # Fallback to lpstat command
     try:
@@ -94,7 +92,7 @@ def _get_linux_printers() -> list[str]:
                     if len(parts) >= 2:
                         printers.append(parts[1])
     except Exception:  # pylint: disable=broad-exception-caught
-        pass
+        logger.debug("lpstat command failed", exc_info=True)
 
     return printers
 
@@ -107,9 +105,9 @@ def _get_linux_default_printer() -> Optional[str]:
         conn = cups.Connection()  # pylint: disable=c-extension-no-member
         return conn.getDefault()
     except ImportError:
-        pass
+        logger.debug("pycups not available for default printer lookup")
     except Exception:  # pylint: disable=broad-exception-caught
-        pass
+        logger.debug("CUPS connection failed for default printer lookup", exc_info=True)
 
     # Fallback to lpstat
     try:
@@ -126,7 +124,7 @@ def _get_linux_default_printer() -> Optional[str]:
             if ":" in line:
                 return line.split(":")[-1].strip()
     except Exception:  # pylint: disable=broad-exception-caught
-        pass
+        logger.debug("lpstat -d command failed", exc_info=True)
 
     return None
 
@@ -144,10 +142,9 @@ def _get_windows_printers() -> list[str]:
         )
         printers = [printer[2] for printer in printer_info]
     except ImportError:
-        # win32print not available
-        pass
+        logger.debug("win32print not available")
     except Exception:  # pylint: disable=broad-exception-caught
-        pass
+        logger.debug("Windows printer enumeration failed", exc_info=True)
 
     return printers
 
@@ -159,9 +156,9 @@ def _get_windows_default_printer() -> Optional[str]:
 
         return win32print.GetDefaultPrinter()
     except ImportError:
-        pass
+        logger.debug("win32print not available for default printer lookup")
     except Exception:  # pylint: disable=broad-exception-caught
-        pass
+        logger.debug("Windows default printer lookup failed", exc_info=True)
 
     return None
 
@@ -298,11 +295,9 @@ def _scale_image_for_printer_linux(  # pylint: disable=too-many-locals
             return canvas
 
     except ImportError:
-        # pycups not available, return original and let lp handle it
-        pass
+        logger.debug("pycups not available for scaling, using original image")
     except Exception:  # pylint: disable=broad-exception-caught
-        # Any error in scaling, return original
-        pass
+        logger.debug("Image scaling failed, using original image", exc_info=True)
 
     return img
 

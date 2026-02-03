@@ -1,8 +1,12 @@
 """Google Maps autocomplete widget for Qt."""
 
+import logging
+
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
 from PySide6.QtCore import QStringListModel, Qt, QThread, QTimer, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QCompleter, QLineEdit  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+
+logger = logging.getLogger(__name__)
 
 
 class GoogleMapsLookupWorker(QThread):  # pylint: disable=too-few-public-methods
@@ -153,7 +157,7 @@ class GoogleMapsCompleter(
 
         # Clear completions on error
         self.model.setStringList([])
-        print(f"Google Maps API error: {error_message}")
+        logger.warning("Google Maps API error: %s", error_message)
 
 
 def setup_google_maps_autocomplete(
