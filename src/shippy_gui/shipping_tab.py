@@ -2,13 +2,12 @@
 
 # pylint: disable=duplicate-code  # Common config loading pattern
 
-import configparser
-import os
 from pathlib import Path
 from typing import Optional, Any
 
 import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
+from pydantic import ValidationError
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QWidget,
     QVBoxLayout,
@@ -30,7 +29,7 @@ from shippy_gui.printing.printer_manager import (
     get_default_printer,
     print_image_with_dialog,
 )
-from shippy_gui.core.models import Config
+from shippy_gui.core.config import load_config, resolve_config_paths
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
 from shippy_gui.workers.shipment_worker import ShipmentWorker
@@ -49,15 +48,9 @@ class ShippingTab(
             parent: Parent widget
         """
         super().__init__(parent)
-        cwd = os.getcwd()
-        self.config_path = config_path or os.path.join(cwd, "config.ini")
-
-        # Fallback to example if the target config doesn't exist
-        self.active_load_path = self.config_path
-        if not os.path.exists(self.config_path):
-            example_path = os.path.join(cwd, "config.example.ini")
-            if os.path.exists(example_path):
-                self.active_load_path = example_path
+        config_paths = resolve_config_paths(config_path)
+        self.config_path = config_paths.config_path
+        self.active_load_path = config_paths.active_load_path
 
         self.gmaps = None
         self.address_parser = None
@@ -74,13 +67,7 @@ class ShippingTab(
     def _load_config(self):
         """Load configuration."""
         try:
-            config_parser = configparser.ConfigParser()
-            config_parser.read(self.active_load_path)
-            config_dict = {
-                section: dict(config_parser[section])
-                for section in config_parser.sections()
-            }
-            self.config = Config.model_validate(config_dict)
+            self.config = load_config(self.active_load_path)
 
             # Initialize Google Maps client
             self.gmaps = googlemaps.Client(key=self.config.googlemaps.apikey)
@@ -88,9 +75,18 @@ class ShippingTab(
 
             # Initialize EasyPost client
             self.easypost_client = easypost.EasyPostClient(self.config.easypost.apikey)
+        except ValidationError as e:
+            QMessageBox.critical(
+                self,
+                "Config Validation Error",
+                f"Error loading configuration:\n\n{str(e)}",
+            )
         except Exception as e:  # pylint: disable=broad-exception-caught
-            # gmaps/easypost will be None if config fails to load
-            print(f"Failed to load config: {e}")
+            QMessageBox.critical(
+                self,
+                "Config Load Error",
+                f"Unexpected error loading configuration:\n\n{str(e)}",
+            )
 
     def _load_logo(self):
         """Load logo image if available."""

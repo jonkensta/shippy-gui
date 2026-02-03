@@ -6,7 +6,8 @@ from typing import Optional
 from PySide6.QtGui import QAction  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QApplication, QMainWindow, QStatusBar  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
-from shippy_gui.core.font import apply_font_size, get_font_size_from_config
+from shippy_gui.core.config import get_font_size_from_path
+from shippy_gui.core.font import apply_font_size
 from shippy_gui.settings_dialog import SettingsDialog
 from shippy_gui.shipping_tab import ShippingTab
 
@@ -79,5 +80,5 @@ class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
         """Apply font size from config to the application."""
         app = QApplication.instance()
         if app:
-            font_size = get_font_size_from_config(self.config_path)
+            font_size = get_font_size_from_path(self.config_path)
             apply_font_size(app, font_size)

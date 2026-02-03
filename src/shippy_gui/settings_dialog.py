@@ -3,7 +3,6 @@
 # pylint: disable=duplicate-code  # Common config loading and button layout patterns
 
 import configparser
-import os
 
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QDialog,
@@ -18,6 +17,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 )
 from pydantic import ValidationError
 
+from shippy_gui.core.config import load_config, resolve_config_paths
 from shippy_gui.core.models import Config
 
 
@@ -34,15 +34,9 @@ class SettingsDialog(
             parent: Parent widget
         """
         super().__init__(parent)
-        self.config_path = config_path
-
-        # Fallback to example if the target config doesn't exist
-        self.active_load_path = self.config_path
-        if not os.path.exists(self.config_path):
-            cwd = os.getcwd()
-            example_path = os.path.join(cwd, "config.example.ini")
-            if os.path.exists(example_path):
-                self.active_load_path = example_path
+        config_paths = resolve_config_paths(config_path)
+        self.config_path = config_paths.config_path
+        self.active_load_path = config_paths.active_load_path
 
         self._init_ui()
         self._load_config()
@@ -121,19 +115,8 @@ class SettingsDialog(
 
     def _load_config(self):
         """Load configuration from config.ini file."""
-        if not os.path.exists(self.active_load_path):
-            return
-
         try:
-            config_parser = configparser.ConfigParser()
-            config_parser.read(self.active_load_path)
-
-            # Convert to dict for Pydantic validation
-            config_dict = {
-                section: dict(config_parser[section])
-                for section in config_parser.sections()
-            }
-            config = Config.model_validate(config_dict)
+            config = load_config(self.active_load_path)
 
             # Populate form fields
             self.easypost_key_input.setText(config.easypost.apikey)
