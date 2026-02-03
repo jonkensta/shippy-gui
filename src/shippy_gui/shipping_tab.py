@@ -21,12 +21,14 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QPushButton,
     QLabel,
     QMessageBox,
+    QApplication,
 )
 from PySide6.QtCore import Qt, QTimer  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.printing.printer_manager import (
     get_available_printers,
     get_default_printer,
+    print_image_with_dialog,
 )
 from shippy_gui.core.models import Config
 from shippy_gui.core.addresses import AddressParser
@@ -185,6 +187,7 @@ class ShippingTab(
         self.create_button.setDefault(True)
         self.create_button.setToolTip(
             "Purchase postage, download label, and print to selected printer.\n"
+            "Hold Shift + Click to choose printer via system dialog.\n"
             "Label will be automatically refunded if printing fails."
         )
         self.create_button.clicked.connect(self._create_label)
@@ -390,6 +393,11 @@ class ShippingTab(
         weight_lbs = self.weight_input.value()
         printer_name = self.printer_combo.currentText()
 
+        # Check for Shift key to enable print dialog
+        use_dialog = (
+            QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier
+        ) == Qt.KeyboardModifier.ShiftModifier
+
         # Create and start worker thread
         self.shipment_worker = ShipmentWorker(
             easypost_client=self.easypost_client,
@@ -398,6 +406,7 @@ class ShippingTab(
             weight_lbs=weight_lbs,
             printer_name=printer_name,
             logo_path=self.logo_path,
+            use_dialog=use_dialog,
         )
 
         # Connect signals
@@ -408,9 +417,44 @@ class ShippingTab(
         self.shipment_worker.success.connect(self._on_shipment_success)
         self.shipment_worker.error.connect(self._on_shipment_error)
         self.shipment_worker.finished.connect(self._on_shipment_finished)
+        self.shipment_worker.label_ready.connect(self._on_label_ready)
 
         # Start the worker
         self.shipment_worker.start()
+
+    def _on_label_ready(self, image, printer_name: str, shipment: object):
+        """Handle label ready for printing via system dialog.
+
+        Args:
+            image: PIL Image object
+            printer_name: Name of printer to pre-select
+            shipment: Shipment object for refunding if canceled/failed
+        """
+        result = print_image_with_dialog(
+            image, self, preferred_printer_name=printer_name
+        )
+
+        if result == "printed":
+            # Success! Reuse existing success handler
+            self._on_shipment_success(
+                f"Label printed successfully! Tracking: {shipment.tracking_code}"
+            )
+
+        elif result in ("canceled", "failed"):
+            # Refund the shipment
+            try:
+                self._set_status("Requesting refund...", "warning")
+                self.easypost_client.shipment.refund(shipment.id)
+                msg = (
+                    "Print canceled. Refund requested."
+                    if result == "canceled"
+                    else "Print failed. Refund requested."
+                )
+                self._on_shipment_error(msg)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                self._on_shipment_error(
+                    f"Print {result} and refund failed. Error: {str(e)}"
+                )
 
     def _on_shipment_success(self, message: str):
         """Handle successful shipment.
