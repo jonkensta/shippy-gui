@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 from pydantic import ValidationError
 
 from shippy_gui.core.config_manager import ConfigManager
+from shippy_gui.core.constants import DEFAULT_FONT_SIZE, FONT_SIZE_MAX, FONT_SIZE_MIN
 from shippy_gui.core.models import Config
 
 
@@ -84,8 +85,8 @@ class SettingsDialog(
         ui_group = QGroupBox("User Interface")
         ui_layout = QFormLayout()
         self.font_size_input = QSpinBox()
-        self.font_size_input.setRange(8, 24)
-        self.font_size_input.setValue(11)
+        self.font_size_input.setRange(FONT_SIZE_MIN, FONT_SIZE_MAX)
+        self.font_size_input.setValue(DEFAULT_FONT_SIZE)
         self.font_size_input.setSuffix(" pt")
         ui_layout.addRow("Font Size:", self.font_size_input)
         ui_group.setLayout(ui_layout)

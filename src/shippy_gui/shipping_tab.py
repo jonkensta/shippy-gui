@@ -29,7 +29,7 @@ from shippy_gui.printing.printer_manager import (
     print_image_with_dialog,
 )
 from shippy_gui.core.config_manager import ConfigManager
-from shippy_gui.core.constants import STATUS_COLORS
+from shippy_gui.core.constants import STATUS_COLORS, WEIGHT_MAX_LBS, WEIGHT_MIN_LBS
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
 from shippy_gui.workers.shipment_worker import ShipmentWorker
@@ -161,8 +161,8 @@ class ShippingTab(
         shipment_form = QFormLayout()
 
         self.weight_input = QSpinBox()
-        self.weight_input.setRange(1, 70)
-        self.weight_input.setValue(1)
+        self.weight_input.setRange(WEIGHT_MIN_LBS, WEIGHT_MAX_LBS)
+        self.weight_input.setValue(WEIGHT_MIN_LBS)
         self.weight_input.setSuffix(" lbs")
         self.weight_input.setToolTip(
             "Package weight in pounds (1-70 lbs for Library Mail rate)"
@@ -512,7 +512,7 @@ class ShippingTab(
         # Clear all input fields for next shipment
         self.address_search_input.clear()
         self._clear_recipient_fields()
-        self.weight_input.setValue(1)
+        self.weight_input.setValue(WEIGHT_MIN_LBS)
 
         # Focus on first input
         self.address_search_input.setFocus()
