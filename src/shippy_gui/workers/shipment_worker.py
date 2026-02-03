@@ -117,23 +117,31 @@ class ShipmentWorker(
                 f"Label printed successfully! Tracking: {self.shipment.tracking_code}"
             )
 
+        except easypost.errors.APIError as e:
+            self._handle_error(f"EasyPost API error: {e}")
+        except RuntimeError as e:
+            # Printing errors
+            self._handle_error(f"Printing error: {e}")
         except Exception as e:  # pylint: disable=broad-exception-caught
-            # Refund the shipment if we created one
-            if self.shipment:
-                try:
-                    self.progress.emit("Requesting refund...")
-                    self.easypost_client.shipment.refund(self.shipment.id)
-                    self.error.emit(
-                        f"Printing failed. Refund requested. Error: {str(e)}"
-                    )
-                # pylint: disable-next=broad-exception-caught
-                except Exception as refund_error:
-                    self.error.emit(
-                        f"Printing failed and refund failed. Error: {str(e)}. "
-                        f"Refund error: {str(refund_error)}"
-                    )
-            else:
-                self.error.emit(f"Shipment creation failed: {str(e)}")
+            self._handle_error(f"Unexpected error: {e}")
+
+    def _handle_error(self, error_message: str) -> None:
+        """Handle an error during shipment workflow, attempting refund if needed.
+
+        Args:
+            error_message: The error message to include in the signal.
+        """
+        if self.shipment:
+            try:
+                self.progress.emit("Requesting refund...")
+                self.easypost_client.shipment.refund(self.shipment.id)
+                self.error.emit(f"{error_message}. Refund requested.")
+            except easypost.errors.APIError as refund_error:
+                self.error.emit(f"{error_message}. Refund also failed: {refund_error}")
+            except Exception as refund_error:  # pylint: disable=broad-exception-caught
+                self.error.emit(f"{error_message}. Refund also failed: {refund_error}")
+        else:
+            self.error.emit(f"Shipment creation failed: {error_message}")
 
     def _download_png(self, url: str) -> Image.Image:
         """Download a PNG image from a URL.

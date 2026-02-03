@@ -335,12 +335,23 @@ class ShippingTab(
             else:
                 self._set_status("Address loaded successfully", "success")
 
+        except (
+            googlemaps.exceptions.ApiError,
+            googlemaps.exceptions.Timeout,
+            googlemaps.exceptions.TransportError,
+        ) as e:
+            self._set_status("Address search failed", "error")
+            QMessageBox.critical(
+                self,
+                "Address Search Error",
+                f"Google Maps API error:\n\n{e}",
+            )
         except Exception as e:  # pylint: disable=broad-exception-caught
             self._set_status("Address search failed", "error")
             QMessageBox.critical(
                 self,
                 "Address Search Error",
-                f"Error parsing address:\n\n{str(e)}",
+                f"Error parsing address:\n\n{e}",
             )
 
     def _create_label(self):  # pylint: disable=too-many-return-statements
@@ -450,42 +461,45 @@ class ShippingTab(
             )
 
         elif result == "canceled":
-            # Refund the shipment silently (or with warning)
-            self._set_status("Requesting refund...", "warning")
-            try:
-                self.easypost_client.shipment.refund(shipment.id)
-                self._set_status("Print canceled. Shipment refunded.", "warning")
-                QMessageBox.warning(
-                    self,
-                    "Print Canceled",
-                    "Printing was canceled. The shipment has been refunded.",
-                )
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                self._set_status("Refund failed", "error")
-                QMessageBox.critical(
-                    self,
-                    "Refund Error",
-                    f"Print canceled but refund failed.\nError: {str(e)}",
-                )
+            self._refund_shipment(shipment, "Print canceled")
 
         elif result == "failed":
-            # Print failed
-            self._set_status("Requesting refund...", "error")
-            try:
-                self.easypost_client.shipment.refund(shipment.id)
-                self._set_status("Print failed. Shipment refunded.", "error")
-                QMessageBox.critical(
-                    self,
-                    "Print Failed",
-                    "Printing failed. The shipment has been refunded.",
-                )
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                self._set_status("Refund failed", "error")
-                QMessageBox.critical(
-                    self,
-                    "Refund Error",
-                    f"Printing failed and refund failed.\nError: {str(e)}",
-                )
+            self._refund_shipment(shipment, "Print failed")
+
+    def _refund_shipment(self, shipment, reason: str) -> None:
+        """Request a refund for a shipment.
+
+        Args:
+            shipment: EasyPost Shipment object.
+            reason: Reason for the refund (e.g., "Print canceled", "Print failed").
+        """
+        if not self.easypost_client:
+            self._set_status("Cannot refund: EasyPost not configured", "error")
+            return
+
+        self._set_status("Requesting refund...", "warning")
+        try:
+            self.easypost_client.shipment.refund(shipment.id)
+            self._set_status(f"{reason}. Shipment refunded.", "warning")
+            QMessageBox.warning(
+                self,
+                reason,
+                f"{reason}. The shipment has been refunded.",
+            )
+        except easypost.errors.APIError as e:
+            self._set_status("Refund failed", "error")
+            QMessageBox.critical(
+                self,
+                "Refund Error",
+                f"{reason} but refund failed.\nEasyPost error: {e}",
+            )
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            self._set_status("Refund failed", "error")
+            QMessageBox.critical(
+                self,
+                "Refund Error",
+                f"{reason} but refund failed.\nError: {e}",
+            )
 
     def _on_shipment_success(self, message: str):
         """Handle successful shipment.
