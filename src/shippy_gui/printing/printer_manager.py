@@ -1,9 +1,10 @@
-"""Printer detection and management for shippy-gui."""
+"""Printer detection and management for shippy-gui.
+
+This module provides the public API for printer operations. It delegates
+platform-specific operations to the PrinterService abstraction.
+"""
 
 import logging
-import platform
-import subprocess
-import tempfile
 from typing import Optional
 
 from PIL import Image, ImageQt
@@ -12,18 +13,7 @@ from PySide6.QtGui import QPainter  # type: ignore[import-untyped] # pylint: dis
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
-from shippy_gui.core.constants import (
-    DEFAULT_PRINT_DPI,
-    PAGE_HEIGHT_POINTS,
-    PAGE_MARGIN_POINTS,
-    PAGE_WIDTH_POINTS,
-    POINTS_PER_INCH,
-    PRINT_SCALE_FACTOR,
-    WIN_DEVCAP_HORZRES,
-    WIN_DEVCAP_PHYSICALHEIGHT,
-    WIN_DEVCAP_PHYSICALWIDTH,
-    WIN_DEVCAP_VERTRES,
-)
+from shippy_gui.printing.printer_service import get_printer_service
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +24,7 @@ def get_available_printers() -> list[str]:
     Returns:
         List of printer names. Empty list if no printers found or on error.
     """
-    system = platform.system()
-
-    if system == "Linux":
-        return _get_linux_printers()
-    if system == "Windows":
-        return _get_windows_printers()
-    return []
+    return get_printer_service().get_available_printers()
 
 
 def get_default_printer() -> Optional[str]:
@@ -49,118 +33,7 @@ def get_default_printer() -> Optional[str]:
     Returns:
         Default printer name, or None if no default is set.
     """
-    system = platform.system()
-
-    if system == "Linux":
-        return _get_linux_default_printer()
-    if system == "Windows":
-        return _get_windows_default_printer()
-    return None
-
-
-def _get_linux_printers() -> list[str]:
-    """Get available printers on Linux using lpstat or pycups."""
-    printers = []
-
-    # Try using pycups first (more reliable)
-    try:
-        import cups  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
-
-        conn = cups.Connection()  # pylint: disable=c-extension-no-member
-        printers_dict = conn.getPrinters()
-        printers = list(printers_dict.keys())
-        return printers
-    except ImportError:
-        logger.debug("pycups not available, falling back to lpstat")
-    except Exception:  # pylint: disable=broad-exception-caught
-        logger.debug("CUPS connection failed, falling back to lpstat", exc_info=True)
-
-    # Fallback to lpstat command
-    try:
-        result = subprocess.run(
-            ["lpstat", "-p"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        if result.returncode == 0:
-            for line in result.stdout.splitlines():
-                if line.startswith("printer "):
-                    # Format: "printer PrinterName is idle..."
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        printers.append(parts[1])
-    except Exception:  # pylint: disable=broad-exception-caught
-        logger.debug("lpstat command failed", exc_info=True)
-
-    return printers
-
-
-def _get_linux_default_printer() -> Optional[str]:
-    """Get default printer on Linux."""
-    try:
-        import cups  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
-
-        conn = cups.Connection()  # pylint: disable=c-extension-no-member
-        return conn.getDefault()
-    except ImportError:
-        logger.debug("pycups not available for default printer lookup")
-    except Exception:  # pylint: disable=broad-exception-caught
-        logger.debug("CUPS connection failed for default printer lookup", exc_info=True)
-
-    # Fallback to lpstat
-    try:
-        result = subprocess.run(
-            ["lpstat", "-d"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        if result.returncode == 0:
-            # Format: "system default destination: PrinterName"
-            line = result.stdout.strip()
-            if ":" in line:
-                return line.split(":")[-1].strip()
-    except Exception:  # pylint: disable=broad-exception-caught
-        logger.debug("lpstat -d command failed", exc_info=True)
-
-    return None
-
-
-def _get_windows_printers() -> list[str]:
-    """Get available printers on Windows."""
-    printers = []
-
-    try:
-        import win32print  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
-
-        # Enumerate all printers
-        printer_info = win32print.EnumPrinters(
-            win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
-        )
-        printers = [printer[2] for printer in printer_info]
-    except ImportError:
-        logger.debug("win32print not available")
-    except Exception:  # pylint: disable=broad-exception-caught
-        logger.debug("Windows printer enumeration failed", exc_info=True)
-
-    return printers
-
-
-def _get_windows_default_printer() -> Optional[str]:
-    """Get default printer on Windows."""
-    try:
-        import win32print  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
-
-        return win32print.GetDefaultPrinter()
-    except ImportError:
-        logger.debug("win32print not available for default printer lookup")
-    except Exception:  # pylint: disable=broad-exception-caught
-        logger.debug("Windows default printer lookup failed", exc_info=True)
-
-    return None
+    return get_printer_service().get_default_printer()
 
 
 def print_image(img: Image.Image, printer_name: str) -> None:
@@ -173,211 +46,7 @@ def print_image(img: Image.Image, printer_name: str) -> None:
     Raises:
         RuntimeError: If printing fails
     """
-    system = platform.system()
-
-    if system == "Linux":
-        _print_image_linux(img, printer_name)
-    elif system == "Windows":
-        _print_image_windows(img, printer_name)
-    else:
-        raise RuntimeError(f"Printing not supported on {system}")
-
-
-def _print_image_linux(img: Image.Image, printer_name: str) -> None:
-    """Print image on Linux using CUPS.
-
-    Args:
-        img: PIL Image to print
-        printer_name: Name of the printer to use
-    """
-    # Auto-rotate if landscape
-    if img.size[0] > img.size[1]:
-        img = img.rotate(90, expand=True)
-
-    # Try to get printer paper size and scale image appropriately
-    scaled_img = _scale_image_for_printer_linux(img, printer_name)
-
-    # Save to temp file and print with lp command
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-        try:
-            scaled_img.save(tmpfile.name)
-            tmpfile.close()
-
-            # Use lp command to print
-            # -o fit-to-page ensures it fits on the page
-            result = subprocess.run(
-                ["lp", "-d", printer_name, "-o", "fit-to-page", tmpfile.name],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-
-            if result.returncode != 0:
-                raise RuntimeError(f"Print command failed: {result.stderr}")
-
-        finally:
-            import os  # pylint: disable=import-outside-toplevel
-
-            os.remove(tmpfile.name)
-
-
-def _scale_image_for_printer_linux(  # pylint: disable=too-many-locals
-    img: Image.Image, printer_name: str
-) -> Image.Image:
-    """Scale image to fit printer's printable area and center it on the page.
-
-    Args:
-        img: PIL Image to scale
-        printer_name: Name of the printer
-
-    Returns:
-        Full-page image with scaled label centered, or original if scaling info unavailable
-    """
-    try:
-        import cups  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
-
-        conn = cups.Connection()  # pylint: disable=c-extension-no-member
-        printers = conn.getPrinters()
-
-        if printer_name not in printers:
-            # Printer not found, return original
-            return img
-
-        # Try to get page size from printer
-        # CUPS uses points (1/72 inch) for dimensions
-        # Common sizes: Letter = 612x792 pts, Legal = 612x1008 pts
-        # Note: printer-make-and-model could be used for PPD lookup but is not currently used
-        # printer_attrs.get("printer-make-and-model", "")
-
-        # Get default media size (letter size)
-        # This is a simplified approach - full PPD parsing would be more accurate
-        printable_width_pts = PAGE_WIDTH_POINTS - (2 * PAGE_MARGIN_POINTS)
-        printable_height_pts = PAGE_HEIGHT_POINTS - (2 * PAGE_MARGIN_POINTS)
-
-        # Convert points to pixels
-        printable_width_px = int(
-            printable_width_pts * DEFAULT_PRINT_DPI / POINTS_PER_INCH
-        )
-        printable_height_px = int(
-            printable_height_pts * DEFAULT_PRINT_DPI / POINTS_PER_INCH
-        )
-
-        # Calculate scaling (similar to Windows approach)
-        ratios = [printable_width_px / img.size[0], printable_height_px / img.size[1]]
-        scale = PRINT_SCALE_FACTOR * min(ratios)
-
-        # Scale the image
-        scaled_width = int(img.size[0] * scale)
-        scaled_height = int(img.size[1] * scale)
-
-        if scaled_width > 0 and scaled_height > 0:
-            scaled_img = img.resize(
-                (scaled_width, scaled_height), Image.Resampling.LANCZOS
-            )
-
-            # Create a full-page canvas (total physical page size)
-            total_width_px = int(
-                PAGE_WIDTH_POINTS * DEFAULT_PRINT_DPI / POINTS_PER_INCH
-            )
-            total_height_px = int(
-                PAGE_HEIGHT_POINTS * DEFAULT_PRINT_DPI / POINTS_PER_INCH
-            )
-            canvas = Image.new("RGB", (total_width_px, total_height_px), "white")
-
-            # Calculate position to center the scaled image
-            x_offset = int((total_width_px - scaled_width) / 2)
-            y_offset = int((total_height_px - scaled_height) / 2)
-
-            # Paste the scaled image onto the center of the canvas
-            canvas.paste(scaled_img, (x_offset, y_offset))
-
-            return canvas
-
-    except ImportError:
-        logger.debug("pycups not available for scaling, using original image")
-    except Exception:  # pylint: disable=broad-exception-caught
-        logger.debug("Image scaling failed, using original image", exc_info=True)
-
-    return img
-
-
-def _print_image_windows(  # pylint: disable=too-many-locals
-    img: Image.Image, printer_name: str
-) -> None:
-    """Print image on Windows using win32print.
-
-    Args:
-        img: PIL Image to print
-        printer_name: Name of the printer to use
-    """
-    try:
-        import win32ui  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
-        from PIL import ImageWin  # pylint: disable=import-outside-toplevel
-    except ImportError:
-        # Fallback to powershell if win32 modules not available
-        _print_image_windows_fallback(img)
-        return
-
-    # Create printer device context
-    context = win32ui.CreateDC()
-    context.CreatePrinterDC(printer_name)
-
-    try:
-        # Auto-rotate if landscape
-        if img.size[0] > img.size[1]:
-            img = img.rotate(90, expand=True)
-
-        # Get printable area
-        horzres = context.GetDeviceCaps(WIN_DEVCAP_HORZRES)
-        vertres = context.GetDeviceCaps(WIN_DEVCAP_VERTRES)
-
-        # Calculate scaling
-        ratios = [horzres / img.size[0], vertres / img.size[1]]
-        scale = PRINT_SCALE_FACTOR * min(ratios)
-
-        # Get total area for centering
-        total_w = context.GetDeviceCaps(WIN_DEVCAP_PHYSICALWIDTH)
-        total_h = context.GetDeviceCaps(WIN_DEVCAP_PHYSICALHEIGHT)
-
-        # Calculate scaled size and position
-        scaled_w, scaled_h = [int(scale * i) for i in img.size]
-        lhs_x = int((total_w - scaled_w) / 2)
-        lhs_y = int((total_h - scaled_h) / 2)
-        rhs_x = lhs_x + scaled_w
-        rhs_y = lhs_y + scaled_h
-
-        # Print the image
-        context.StartDoc("Shipping Label")
-        context.StartPage()
-
-        dib = ImageWin.Dib(img)
-        dib.draw(context.GetHandleOutput(), (lhs_x, lhs_y, rhs_x, rhs_y))
-
-        context.EndPage()
-        context.EndDoc()
-
-    finally:
-        context.DeleteDC()
-
-
-def _print_image_windows_fallback(img: Image.Image) -> None:
-    """Fallback Windows printing using default image viewer.
-
-    Args:
-        img: PIL Image to print
-    """
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-        try:
-            img.save(tmpfile.name)
-            tmpfile.close()
-
-            subprocess.check_call(["powershell", "-c", tmpfile.name])
-
-        finally:
-            import os  # pylint: disable=import-outside-toplevel
-
-            os.remove(tmpfile.name)
+    get_printer_service().print_image(img, printer_name)
 
 
 def print_image_with_dialog(
@@ -386,6 +55,8 @@ def print_image_with_dialog(
     preferred_printer_name: Optional[str] = None,
 ) -> str:
     """Show system print dialog and print image if accepted.
+
+    This function uses Qt's QPrintDialog for cross-platform dialog printing.
 
     Args:
         img: PIL Image to print
@@ -421,13 +92,11 @@ def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
         True if printing succeeded, False otherwise
     """
     try:
-        # Auto-rotate if landscape (mirror existing behavior)
-        # Note: This might conflict with dialog orientation settings if the user
-        # explicitly chooses Landscape, but we prioritize consistency with the quick-print path.
+        # Auto-rotate if landscape
         if img.size[0] > img.size[1]:
             img = img.rotate(90, expand=True)
 
-        # Convert PIL to QImage safely
+        # Convert PIL to QImage
         q_img = ImageQt.ImageQt(img)
 
         painter = QPainter()
@@ -459,7 +128,5 @@ def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
         return True
 
     except Exception:  # pylint: disable=broad-exception-caught
-        # Intentionally swallow errors here as we rely on the boolean return
-        # to signal failure to the caller, rather than raising exceptions.
         logger.exception("Dialog print failed during QPrinter rendering.")
         return False
