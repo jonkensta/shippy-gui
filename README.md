@@ -215,6 +215,12 @@ This application shares core shipping logic with the [shippy CLI tool](https://g
 
 For development setup, follow the Local Development Installation instructions above.
 
+To enable Git hooks for linting and formatting checks:
+
+```bash
+uv run pre-commit install
+```
+
 ## License
 
 This project is developed for the Inside Books Project. For licensing information, please contact IBP directly.
