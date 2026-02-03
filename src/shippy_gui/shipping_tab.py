@@ -1,6 +1,6 @@
 "Unified shipping tab with manual address entry."
 
-# pylint: disable=duplicate-code  # Common config loading pattern
+# pylint: disable=duplicate-code  # Intentional patterns shared with settings_dialog
 
 from pathlib import Path
 from typing import Optional, Any
