@@ -21,8 +21,7 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods,too-man
     success = Signal(str)  # Success message
     error = Signal(str)  # Error message
     warning = Signal(str)  # Warning message (non-blocking)
-    # Signal(image, printer_name, shipment_object)
-    label_ready = Signal(object, str, object)
+    label_ready = Signal(object, str, object)  # (image, printer_name, shipment_object)
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
