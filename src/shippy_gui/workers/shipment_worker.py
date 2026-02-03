@@ -21,7 +21,8 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods,too-man
     success = Signal(str)  # Success message
     error = Signal(str)  # Error message
     warning = Signal(str)  # Warning message (non-blocking)
-    label_ready = Signal(object, str)  # Image ready for dialog (image, printer_name)
+    # Signal(image, printer_name, shipment_object)
+    label_ready = Signal(object, str, object)
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
@@ -101,7 +102,8 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods,too-man
 
             # Step 6: Print (or emit for dialog)
             if self.use_dialog:
-                self.label_ready.emit(image, self.printer_name)
+                # Contract: Only emitted when use_dialog is True
+                self.label_ready.emit(image, self.printer_name, self.shipment)
                 # Do not emit success here; UI thread handles the rest
                 return
 
