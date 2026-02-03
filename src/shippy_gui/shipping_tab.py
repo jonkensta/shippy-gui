@@ -40,6 +40,13 @@ class ShippingTab(
 ):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Tab for unified shipping with address lookup."""
 
+    STATUS_COLORS = {
+        "info": "#0066CC",  # Blue
+        "success": "#008800",  # Green
+        "warning": "#FF8800",  # Yellow/Orange
+        "error": "#CC0000",  # Red
+    }
+
     def __init__(self, config_path: Optional[str] = None, parent=None):
         """Initialize the shipping tab.
 
@@ -229,13 +236,39 @@ class ShippingTab(
 
     def _clear_recipient_fields(self):
         """Clear all recipient address fields."""
-        self.name_input.clear()
-        self.company_input.clear()
-        self.street1_input.clear()
-        self.street2_input.clear()
-        self.city_input.clear()
-        self.state_input.clear()
-        self.zipcode_input.clear()
+        for field in self._recipient_fields():
+            field.clear()
+
+    def _recipient_fields(self) -> list[QLineEdit]:
+        """Return the list of recipient input fields."""
+        return [
+            self.name_input,
+            self.company_input,
+            self.street1_input,
+            self.street2_input,
+            self.city_input,
+            self.state_input,
+            self.zipcode_input,
+        ]
+
+    def _validate_required_fields(self) -> Optional[str]:
+        """Validate required fields and return an error message if invalid."""
+        required_fields = [
+            ("Please enter recipient name", self.name_input),
+            ("Please enter street address", self.street1_input),
+            ("Please enter city", self.city_input),
+            ("Please enter state", self.state_input),
+            ("Please enter ZIP code", self.zipcode_input),
+        ]
+
+        for message, field in required_fields:
+            if not field.text().strip():
+                return message
+
+        if self.printer_combo.currentText() == "No printers found":
+            return "No printer selected"
+
+        return None
 
     def _load_address(self, selected_address: Optional[str] = None):
         """Parse selected address and populate address fields.
@@ -321,28 +354,9 @@ class ShippingTab(
     def _create_label(self):  # pylint: disable=too-many-return-statements
         """Create and print shipping label."""
         # Validate required fields
-        if not self.name_input.text().strip():
-            self._set_status("Please enter recipient name", "error")
-            return
-
-        if not self.street1_input.text().strip():
-            self._set_status("Please enter street address", "error")
-            return
-
-        if not self.city_input.text().strip():
-            self._set_status("Please enter city", "error")
-            return
-
-        if not self.state_input.text().strip():
-            self._set_status("Please enter state", "error")
-            return
-
-        if not self.zipcode_input.text().strip():
-            self._set_status("Please enter ZIP code", "error")
-            return
-
-        if self.printer_combo.currentText() == "No printers found":
-            self._set_status("No printer selected", "error")
+        validation_error = self._validate_required_fields()
+        if validation_error:
+            self._set_status(validation_error, "error")
             return
 
         # Check for required services
@@ -491,13 +505,7 @@ class ShippingTab(
 
         # Clear all input fields for next shipment
         self.address_search_input.clear()
-        self.name_input.clear()
-        self.company_input.clear()
-        self.street1_input.clear()
-        self.street2_input.clear()
-        self.city_input.clear()
-        self.state_input.clear()
-        self.zipcode_input.clear()
+        self._clear_recipient_fields()
         self.weight_input.setValue(1)
 
         # Focus on first input
@@ -529,12 +537,6 @@ class ShippingTab(
             message: Status message to display
             status_type: One of "info", "success", "warning", "error"
         """
-        colors = {
-            "info": "#0066CC",  # Blue
-            "success": "#008800",  # Green
-            "warning": "#FF8800",  # Yellow/Orange
-            "error": "#CC0000",  # Red
-        }
-        color = colors.get(status_type, colors["info"])
+        color = self.STATUS_COLORS.get(status_type, self.STATUS_COLORS["info"])
         self.status_label.setText(message)
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
