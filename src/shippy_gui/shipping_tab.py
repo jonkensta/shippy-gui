@@ -5,7 +5,7 @@
 import configparser
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
@@ -422,7 +422,7 @@ class ShippingTab(
         # Start the worker
         self.shipment_worker.start()
 
-    def _on_label_ready(self, image, printer_name: str, shipment: object):
+    def _on_label_ready(self, image, printer_name: str, shipment: Any):
         """Handle label ready for printing via system dialog.
 
         Args:
@@ -433,6 +433,9 @@ class ShippingTab(
         # Note: The worker thread finishes immediately after emitting this signal,
         # which triggers _on_shipment_finished and re-enables the Create button.
         # This is safe because the QPrintDialog is modal and blocks UI interaction.
+
+        if not self.easypost_client:
+            return
 
         result = print_image_with_dialog(
             image, self, preferred_printer_name=printer_name

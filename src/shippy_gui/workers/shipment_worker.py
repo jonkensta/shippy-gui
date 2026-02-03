@@ -13,7 +13,9 @@ from shippy_gui.core.shipping import build_address, build_shipment
 from shippy_gui.printing.printer_manager import print_image
 
 
-class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
+class ShipmentWorker(
+    QThread
+):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Worker thread for async shipment creation and printing."""
 
     # Signals
