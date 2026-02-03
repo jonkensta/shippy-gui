@@ -7,7 +7,6 @@ from typing import Optional, Any
 
 import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
-from pydantic import ValidationError
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QWidget,
     QVBoxLayout,
@@ -29,7 +28,7 @@ from shippy_gui.printing.printer_manager import (
     get_default_printer,
     print_image_with_dialog,
 )
-from shippy_gui.core.config import load_config, resolve_config_paths
+from shippy_gui.core.config_manager import ConfigManager
 from shippy_gui.core.constants import STATUS_COLORS
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
@@ -49,45 +48,44 @@ class ShippingTab(
             parent: Parent widget
         """
         super().__init__(parent)
-        config_paths = resolve_config_paths(config_path)
-        self.config_path = config_paths.config_path
-        self.active_load_path = config_paths.active_load_path
+        self._config_manager = ConfigManager(config_path)
 
         self.gmaps = None
         self.address_parser = None
         self.easypost_client = None
-        self.config = None
         self.logo_path = None
         self.shipment_worker = None
-        self._load_config()
+        self._init_api_clients()
         self._load_logo()
         self._init_ui()
         self._load_printers()
         self._setup_autocomplete()
 
-    def _load_config(self):
-        """Load configuration."""
-        try:
-            self.config = load_config(self.active_load_path)
+    @property
+    def config(self):
+        """Get the loaded configuration."""
+        return self._config_manager.config
 
-            # Initialize Google Maps client
-            self.gmaps = googlemaps.Client(key=self.config.googlemaps.apikey)
-            self.address_parser = AddressParser(self.gmaps)
+    @property
+    def config_path(self) -> str:
+        """Get the config file path."""
+        return self._config_manager.config_path
 
-            # Initialize EasyPost client
-            self.easypost_client = easypost.EasyPostClient(self.config.easypost.apikey)
-        except ValidationError as e:
-            QMessageBox.critical(
-                self,
-                "Config Validation Error",
-                f"Error loading configuration:\n\n{str(e)}",
-            )
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            QMessageBox.critical(
-                self,
-                "Config Load Error",
-                f"Unexpected error loading configuration:\n\n{str(e)}",
-            )
+    def _init_api_clients(self):
+        """Load configuration and initialize API clients."""
+        if not self._config_manager.load(parent_widget=self):
+            return
+
+        config = self._config_manager.config
+        if config is None:
+            return
+
+        # Initialize Google Maps client
+        self.gmaps = googlemaps.Client(key=config.googlemaps.apikey)
+        self.address_parser = AddressParser(self.gmaps)
+
+        # Initialize EasyPost client
+        self.easypost_client = easypost.EasyPostClient(config.easypost.apikey)
 
     def _load_logo(self):
         """Load logo image if available."""

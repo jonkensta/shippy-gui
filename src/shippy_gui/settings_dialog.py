@@ -1,9 +1,5 @@
 """Settings dialog for shippy-gui configuration."""
 
-# pylint: disable=duplicate-code  # Common config loading and button layout patterns
-
-import configparser
-
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QDialog,
     QVBoxLayout,
@@ -17,7 +13,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 )
 from pydantic import ValidationError
 
-from shippy_gui.core.config import load_config, resolve_config_paths
+from shippy_gui.core.config_manager import ConfigManager
 from shippy_gui.core.models import Config
 
 
@@ -34,9 +30,7 @@ class SettingsDialog(
             parent: Parent widget
         """
         super().__init__(parent)
-        config_paths = resolve_config_paths(config_path)
-        self.config_path = config_paths.config_path
-        self.active_load_path = config_paths.active_load_path
+        self._config_manager = ConfigManager(config_path)
 
         self._init_ui()
         self._load_config()
@@ -115,89 +109,58 @@ class SettingsDialog(
 
     def _load_config(self):
         """Load configuration from config.ini file."""
-        try:
-            config = load_config(self.active_load_path)
+        if not self._config_manager.load(parent_widget=self):
+            return
 
-            # Populate form fields
-            self.easypost_key_input.setText(config.easypost.apikey)
-            self.gmaps_key_input.setText(config.googlemaps.apikey)
-            self.return_name_input.setText(config.return_address.name)
-            self.return_street1_input.setText(config.return_address.street1)
-            self.return_street2_input.setText(config.return_address.street2 or "")
-            self.return_city_input.setText(config.return_address.city)
-            self.return_state_input.setText(config.return_address.state)
-            self.return_zipcode_input.setText(config.return_address.zipcode)
-            self.font_size_input.setValue(config.get_font_size())
+        config = self._config_manager.config
+        if config is None:
+            return
 
-        except ValidationError as e:
-            QMessageBox.critical(
-                self,
-                "Config Validation Error",
-                f"Error loading configuration:\n\n{str(e)}",
-            )
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            QMessageBox.critical(
-                self,
-                "Config Load Error",
-                f"Unexpected error loading configuration:\n\n{str(e)}",
-            )
+        # Populate form fields
+        self.easypost_key_input.setText(config.easypost.apikey)
+        self.gmaps_key_input.setText(config.googlemaps.apikey)
+        self.return_name_input.setText(config.return_address.name)
+        self.return_street1_input.setText(config.return_address.street1)
+        self.return_street2_input.setText(config.return_address.street2 or "")
+        self.return_city_input.setText(config.return_address.city)
+        self.return_state_input.setText(config.return_address.state)
+        self.return_zipcode_input.setText(config.return_address.zipcode)
+        self.font_size_input.setValue(config.get_font_size())
 
     def _save_config(self):
         """Save configuration to config.ini file with validation."""
+        # Build config dict from form inputs
+        config_dict = {
+            "ui": {
+                "font_size": self.font_size_input.value(),
+            },
+            "easypost": {
+                "apikey": self.easypost_key_input.text().strip(),
+            },
+            "googlemaps": {
+                "apikey": self.gmaps_key_input.text().strip(),
+            },
+            "return_address": {
+                "name": self.return_name_input.text().strip(),
+                "street1": self.return_street1_input.text().strip(),
+                "street2": self.return_street2_input.text().strip(),
+                "city": self.return_city_input.text().strip(),
+                "state": self.return_state_input.text().strip(),
+                "zipcode": self.return_zipcode_input.text().strip(),
+            },
+        }
+
+        # Validate with Pydantic
         try:
-            # Build config dict from form inputs
-            config_dict = {
-                "ui": {
-                    "font_size": self.font_size_input.value(),
-                },
-                "easypost": {
-                    "apikey": self.easypost_key_input.text().strip(),
-                },
-                "googlemaps": {
-                    "apikey": self.gmaps_key_input.text().strip(),
-                },
-                "return_address": {
-                    "name": self.return_name_input.text().strip(),
-                    "street1": self.return_street1_input.text().strip(),
-                    "street2": self.return_street2_input.text().strip(),
-                    "city": self.return_city_input.text().strip(),
-                    "state": self.return_state_input.text().strip(),
-                    "zipcode": self.return_zipcode_input.text().strip(),
-                },
-            }
-
-            # Validate with Pydantic
             config = Config.model_validate(config_dict)
-
-            # Write to config.ini
-            config_parser = configparser.ConfigParser()
-            config_parser["ui"] = {"font_size": str(config.get_font_size())}
-            config_parser["easypost"] = {"apikey": config.easypost.apikey}
-            config_parser["googlemaps"] = {"apikey": config.googlemaps.apikey}
-            config_parser["return_address"] = {
-                "name": config.return_address.name,
-                "street1": config.return_address.street1,
-                "street2": config.return_address.street2 or "",
-                "city": config.return_address.city,
-                "state": config.return_address.state,
-                "zipcode": config.return_address.zipcode,
-            }
-
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                config_parser.write(f)
-
-            # Success
-            self.accept()
-
         except ValidationError as e:
             QMessageBox.critical(
                 self,
                 "Validation Error",
-                f"Please fix the following errors:\n\n{str(e)}",
+                f"Please fix the following errors:\n\n{e}",
             )
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            QMessageBox.critical(
-                self,
-                "Save Error",
-                f"Error saving configuration:\n\n{str(e)}",
-            )
+            return
+
+        # Save using ConfigManager
+        if self._config_manager.save(config, parent_widget=self):
+            self.accept()
