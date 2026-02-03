@@ -1,7 +1,5 @@
 """Worker thread for creating and printing shipping labels."""
 
-import urllib.request
-import tempfile
 import os
 from typing import Optional
 
@@ -9,6 +7,7 @@ import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
 from PIL import Image
 from PySide6.QtCore import QThread, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
+from shippy_gui.core.misc import grab_png_from_url
 from shippy_gui.core.shipping import build_address, build_shipment
 from shippy_gui.printing.printer_manager import print_image
 
@@ -144,12 +143,4 @@ class ShipmentWorker(
         Returns:
             PIL Image object
         """
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-            try:
-                urllib.request.urlretrieve(url, tmpfile.name)
-                img = Image.open(tmpfile.name)
-                img.load()
-                return img
-            finally:
-                tmpfile.close()
-                os.remove(tmpfile.name)
+        return grab_png_from_url(url)
