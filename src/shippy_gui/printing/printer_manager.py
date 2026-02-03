@@ -1,5 +1,6 @@
 """Printer detection and management for shippy-gui."""
 
+import logging
 import platform
 import subprocess
 import tempfile
@@ -10,6 +11,8 @@ from PySide6.QtPrintSupport import QPrintDialog, QPrinter  # type: ignore[import
 from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtGui import QPainter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+
+logger = logging.getLogger(__name__)
 
 
 def get_available_printers() -> list[str]:
@@ -421,6 +424,7 @@ def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
 
         painter = QPainter()
         if not painter.begin(printer):
+            logger.warning("QPainter.begin() failed for QPrinter dialog print.")
             return False
 
         try:
@@ -449,4 +453,5 @@ def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
     except Exception:  # pylint: disable=broad-exception-caught
         # Intentionally swallow errors here as we rely on the boolean return
         # to signal failure to the caller, rather than raising exceptions.
+        logger.exception("Dialog print failed during QPrinter rendering.")
         return False
