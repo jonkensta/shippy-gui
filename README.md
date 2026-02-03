@@ -1,10 +1,10 @@
 # shippy-gui
 
-`shippy-gui` is a PySide6 GUI application designed to streamline the process of printing shipping labels for books destined for incarcerated individuals in Texas. It integrates with an internal server for address management and the EasyPost API for postage purchasing and label generation.
+`shippy-gui` is a PySide6 GUI application designed to streamline the process of printing shipping labels for books destined for incarcerated individuals in Texas. It integrates with the EasyPost API for postage purchasing and label generation, and uses Google Maps for address autocomplete.
 
 ## Purpose
 
-The primary goal of this application is to provide an intuitive graphical interface for the Inside Books Project (IBP) to generate and print accurate shipping labels. It automates the postage purchasing and label creation process, interacting with IBP's internal server to retrieve recipient addresses and using EasyPost for carrier services. The application provides a unified shipping interface with multiple lookup helpers for different workflows.
+The primary goal of this application is to provide an intuitive graphical interface for the Inside Books Project (IBP) to generate and print accurate shipping labels for manual address entry. It automates the postage purchasing and label creation process using EasyPost for carrier services and Google Maps for address lookup assistance.
 
 ## About Inside Books Project
 
@@ -12,18 +12,15 @@ Inside Books Project is an Austin-based community service volunteer organization
 
 ## Features
 
-- **Unified Shipping Interface**: Single window with three lookup helpers for different workflows
-  - **Inmate Lookup**: Find inmate by barcode, ID, or request number
-  - **Address Search**: Google Maps autocomplete for manual address entry
-  - **Unit Lookup**: Select prison unit and auto-fill mailroom address
-- **Integration with IBP Server**: Fetches unit addresses and inmate information from an internal IBP server
-- **EasyPost API Integration**: Utilizes the EasyPost API for purchasing postage and generating Library Mail shipping labels
+- **Manual Address Entry**: Single window interface for entering recipient addresses
 - **Google Maps Integration**: Address autocomplete and geocoding for accurate address entry
-- **Label Printing**: Generates and prints postage labels with optional custom logo overlay
+- **EasyPost API Integration**: Utilizes the EasyPost API for purchasing postage and generating Library Mail shipping labels
+- **Label Printing**: Generates and prints postage labels with IBP logo overlay when available
 - **Cross-Platform Printing**: Supports Windows (win32print) and Linux (CUPS) printing
-- **Settings Dialog**: GUI for configuring API keys, server URL, and return address
-- **Error Handling**: Automatic refund on print failure, comprehensive error messages with tooltips
+- **Settings Dialog**: GUI for configuring API keys and return address
+- **Error Handling**: Automatic refund on print failure, comprehensive error messages
 - **Async Operations**: Non-blocking UI using QThread for network operations
+- **Configurable Font Size**: Adjust UI font size for accessibility
 
 ## Installation
 
@@ -77,20 +74,20 @@ uvx --from git+https://github.com/jonkensta/shippy-gui.git@main shippy-gui
 
 ## Configuration
 
-The application requires a configuration file for the IBP server, EasyPost API, Google Maps API, and return address information.
+The application requires a configuration file for the EasyPost API, Google Maps API, and return address information.
 
 ### Initial Setup
 
-On first run, the application will look for `config.ini` in the current working directory. If not found, you can create it manually or use the Settings dialog (File → Settings) from within the application.
+On first run, the application will look for `config.ini` in the current working directory. If not found, it will fall back to `config.example.ini` for loading defaults. You can create `config.ini` manually or use the Settings dialog (File → Settings) from within the application. Settings are always saved to `config.ini`.
 
 ### Manual Configuration
 
-1.  Create a `config.ini` file in your working directory (or specify a custom path).
-2.  Populate it with your API keys, server URL, and return address:
+1.  Copy `config.example.ini` to `config.ini` in your working directory.
+2.  Populate it with your API keys and return address:
 
     ```ini
-    [ibp]
-    url = http://your_ibp_server_url:8000
+    [ui]
+    font_size = 11
 
     [easypost]
     apikey = your_easypost_api_key_here
@@ -107,7 +104,7 @@ On first run, the application will look for `config.ini` in the current working 
     zipcode = 78703
     ```
 
-    - `ibp.url`: The URL of your internal IBP server
+    - `ui.font_size`: UI font size in points (8-24)
     - `easypost.apikey`: Your EasyPost API key
     - `googlemaps.apikey`: Your Google Maps API key (for address autocomplete)
     - `return_address.*`: Your return address information (sender address for labels)
@@ -139,12 +136,6 @@ Or if you installed it as a package:
 shippy-gui
 ```
 
-To specify a custom config file location:
-
-```bash
-python -m shippy_gui --config /path/to/your/config.ini
-```
-
 ### Running with uvx
 
 Run directly from the repository without local installation:
@@ -161,33 +152,26 @@ To create a Windows desktop shortcut that launches shippy-gui, you can use Power
 powershell.exe -NoExit -Command "& { & 'uvx' --from 'git+https://github.com/jonkensta/shippy-gui.git@main' 'shippy-gui' }"
 ```
 
-For a shortcut with a specific config file:
-
-```powershell
-powershell.exe -NoExit -Command "& { & 'uvx' --from 'git+https://github.com/jonkensta/shippy-gui.git@main' 'shippy-gui' --config 'C:\path\to\your\config.ini' }"
-```
-
 To create the shortcut:
 
 1. Right-click on your desktop
 2. Select **New → Shortcut**
-3. Paste one of the PowerShell commands above as the location
+3. Paste the PowerShell command above as the location
 4. Name the shortcut "Shippy GUI" (or your preferred name)
 5. Click **Finish**
 
 ### Application Workflow
 
 1. **Configure settings** (File → Settings) on first run
-2. **Choose a lookup method**:
-   - **Inmate Lookup**: Enter barcode (TEX-12345678-0), inmate ID (12345678), or request ID
-   - **Address Search**: Type an address and select from Google Maps autocomplete suggestions, then click Load
-   - **Unit Lookup**: Type a prison unit name and select from autocomplete, then click Load
-3. **Verify/edit** the recipient address fields (all fields are editable)
-4. **Enter package weight** in pounds (1-70 range)
-5. **Select printer** from the dropdown
-6. **Click "Create Label"**:
-   - Application purchases postage via EasyPost
-   - Downloads and optionally adds logo to label
+2. **Enter recipient address**:
+   - Type an address in the search field and select from Google Maps autocomplete suggestions
+   - Address fields auto-populate when you select a result
+   - All fields are editable for manual adjustment
+3. **Enter package weight** in pounds (1-70 range)
+4. **Select printer** from the dropdown
+5. **Click "Create Label"**:
+   - Application purchases postage via EasyPost (Library Mail rate)
+   - Downloads label from EasyPost and overlays IBP logo from `assets/logo.jpg` when available
    - Prints to selected printer
    - Shows tracking number on success
    - Automatically refunds if printing fails
@@ -205,7 +189,7 @@ To create the shortcut:
 ## Troubleshooting
 
 ### "Configuration Error" on startup
-- Ensure `config.ini` exists and is properly formatted
+- Ensure `config.ini` or `config.example.ini` exists and is properly formatted
 - Use File → Settings to validate and save your configuration
 
 ### "Failed to verify address" warning
@@ -225,9 +209,8 @@ To create the shortcut:
 ## Development
 
 This application shares core shipping logic with the [shippy CLI tool](https://github.com/jonkensta/shippy). The following modules are reused:
-- `core/server.py` - IBP API client
 - `core/shipping.py` - EasyPost wrapper
-- `core/addresses.py` - Google Maps parser
+- `core/addresses.py` - Google Maps geocoding
 - `core/models.py` - Pydantic configuration models
 
 For development setup, follow the Local Development Installation instructions above.
