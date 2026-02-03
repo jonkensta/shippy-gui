@@ -3,20 +3,22 @@
 from typing import Optional
 from pydantic import BaseModel, field_validator
 
+from shippy_gui.core.constants import DEFAULT_FONT_SIZE, FONT_SIZE_MIN, FONT_SIZE_MAX
+
 
 class UiConfig(BaseModel):
     """Model for UI configuration."""
 
-    font_size: int = 11
+    font_size: int = DEFAULT_FONT_SIZE
 
     @field_validator("font_size")
     @classmethod
     def validate_font_size(cls, v: int) -> int:
         """Validate font size is within reasonable bounds."""
-        if v < 8:
-            raise ValueError("Font size must be at least 8")
-        if v > 24:
-            raise ValueError("Font size must be at most 24")
+        if v < FONT_SIZE_MIN:
+            raise ValueError(f"Font size must be at least {FONT_SIZE_MIN}")
+        if v > FONT_SIZE_MAX:
+            raise ValueError(f"Font size must be at most {FONT_SIZE_MAX}")
         return v
 
 
@@ -53,4 +55,4 @@ class Config(BaseModel):
 
     def get_font_size(self) -> int:
         """Get font size with default fallback."""
-        return self.ui.font_size if self.ui else 11
+        return self.ui.font_size if self.ui else DEFAULT_FONT_SIZE

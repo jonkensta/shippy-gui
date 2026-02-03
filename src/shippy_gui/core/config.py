@@ -7,9 +7,8 @@ from typing import Optional
 
 from pydantic import ValidationError
 
+from shippy_gui.core.constants import DEFAULT_FONT_SIZE
 from shippy_gui.core.models import Config
-
-DEFAULT_FONT_SIZE = 11
 
 
 @dataclass(frozen=True)

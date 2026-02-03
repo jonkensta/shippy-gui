@@ -7,6 +7,7 @@ import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
 from PIL import Image
 from PySide6.QtCore import QThread, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
+from shippy_gui.core.constants import LOGO_PASTE_X, LOGO_PASTE_Y, OUNCES_PER_POUND
 from shippy_gui.core.misc import grab_png_from_url
 from shippy_gui.core.shipping import build_address, build_shipment
 from shippy_gui.printing.printer_manager import print_image
@@ -84,7 +85,7 @@ class ShipmentWorker(
 
             # Step 3: Purchase postage
             self.progress.emit("Purchasing postage...")
-            weight_oz = self.weight_lbs * 16  # Convert to ounces
+            weight_oz = self.weight_lbs * OUNCES_PER_POUND
             self.shipment = build_shipment(
                 self.easypost_client, from_addr, to_addr, weight_oz
             )
@@ -98,7 +99,7 @@ class ShipmentWorker(
             if self.logo_path and os.path.exists(self.logo_path):
                 self.progress.emit("Adding logo...")
                 logo = Image.open(self.logo_path)
-                image.paste(logo, (450, 425))
+                image.paste(logo, (LOGO_PASTE_X, LOGO_PASTE_Y))
 
             # Step 6: Print (or emit for dialog)
             if self.use_dialog:

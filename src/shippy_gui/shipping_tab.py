@@ -30,6 +30,7 @@ from shippy_gui.printing.printer_manager import (
     print_image_with_dialog,
 )
 from shippy_gui.core.config import load_config, resolve_config_paths
+from shippy_gui.core.constants import STATUS_COLORS
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
 from shippy_gui.workers.shipment_worker import ShipmentWorker
@@ -39,13 +40,6 @@ class ShippingTab(
     QWidget
 ):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Tab for unified shipping with address lookup."""
-
-    STATUS_COLORS = {
-        "info": "#0066CC",  # Blue
-        "success": "#008800",  # Green
-        "warning": "#FF8800",  # Yellow/Orange
-        "error": "#CC0000",  # Red
-    }
 
     def __init__(self, config_path: Optional[str] = None, parent=None):
         """Initialize the shipping tab.
@@ -537,6 +531,6 @@ class ShippingTab(
             message: Status message to display
             status_type: One of "info", "success", "warning", "error"
         """
-        color = self.STATUS_COLORS.get(status_type, self.STATUS_COLORS["info"])
+        color = STATUS_COLORS.get(status_type, STATUS_COLORS["info"])
         self.status_label.setText(message)
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")

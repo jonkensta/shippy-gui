@@ -5,12 +5,25 @@ import platform
 import subprocess
 import tempfile
 from typing import Optional
-from PIL import Image, ImageQt
 
+from PIL import Image, ImageQt
+from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtGui import QPainter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
-from PySide6.QtGui import QPainter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
-from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+
+from shippy_gui.core.constants import (
+    DEFAULT_PRINT_DPI,
+    PAGE_HEIGHT_POINTS,
+    PAGE_MARGIN_POINTS,
+    PAGE_WIDTH_POINTS,
+    POINTS_PER_INCH,
+    PRINT_SCALE_FACTOR,
+    WIN_DEVCAP_HORZRES,
+    WIN_DEVCAP_PHYSICALHEIGHT,
+    WIN_DEVCAP_PHYSICALWIDTH,
+    WIN_DEVCAP_VERTRES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -240,26 +253,22 @@ def _scale_image_for_printer_linux(  # pylint: disable=too-many-locals
         # Note: printer-make-and-model could be used for PPD lookup but is not currently used
         # printer_attrs.get("printer-make-and-model", "")
 
-        # Get default media size
+        # Get default media size (letter size)
         # This is a simplified approach - full PPD parsing would be more accurate
-        # Default to letter size (8.5" x 11" = 612 x 792 points)
-        page_width_pts = 612
-        page_height_pts = 792
+        printable_width_pts = PAGE_WIDTH_POINTS - (2 * PAGE_MARGIN_POINTS)
+        printable_height_pts = PAGE_HEIGHT_POINTS - (2 * PAGE_MARGIN_POINTS)
 
-        # Assume 0.25" margins on all sides (18 points)
-        margin_pts = 18
-        printable_width_pts = page_width_pts - (2 * margin_pts)
-        printable_height_pts = page_height_pts - (2 * margin_pts)
-
-        # Convert points to pixels assuming 300 DPI
-        # 1 point = 1/72 inch, so points * DPI / 72 = pixels
-        dpi = 300
-        printable_width_px = int(printable_width_pts * dpi / 72)
-        printable_height_px = int(printable_height_pts * dpi / 72)
+        # Convert points to pixels
+        printable_width_px = int(
+            printable_width_pts * DEFAULT_PRINT_DPI / POINTS_PER_INCH
+        )
+        printable_height_px = int(
+            printable_height_pts * DEFAULT_PRINT_DPI / POINTS_PER_INCH
+        )
 
         # Calculate scaling (similar to Windows approach)
         ratios = [printable_width_px / img.size[0], printable_height_px / img.size[1]]
-        scale = 0.95 * min(ratios)  # 95% to avoid clipping
+        scale = PRINT_SCALE_FACTOR * min(ratios)
 
         # Scale the image
         scaled_width = int(img.size[0] * scale)
@@ -271,8 +280,12 @@ def _scale_image_for_printer_linux(  # pylint: disable=too-many-locals
             )
 
             # Create a full-page canvas (total physical page size)
-            total_width_px = int(page_width_pts * dpi / 72)
-            total_height_px = int(page_height_pts * dpi / 72)
+            total_width_px = int(
+                PAGE_WIDTH_POINTS * DEFAULT_PRINT_DPI / POINTS_PER_INCH
+            )
+            total_height_px = int(
+                PAGE_HEIGHT_POINTS * DEFAULT_PRINT_DPI / POINTS_PER_INCH
+            )
             canvas = Image.new("RGB", (total_width_px, total_height_px), "white")
 
             # Calculate position to center the scaled image
@@ -321,16 +334,16 @@ def _print_image_windows(  # pylint: disable=too-many-locals
             img = img.rotate(90, expand=True)
 
         # Get printable area
-        horzres = context.GetDeviceCaps(8)  # HORZRES
-        vertres = context.GetDeviceCaps(10)  # VERTRES
+        horzres = context.GetDeviceCaps(WIN_DEVCAP_HORZRES)
+        vertres = context.GetDeviceCaps(WIN_DEVCAP_VERTRES)
 
         # Calculate scaling
         ratios = [horzres / img.size[0], vertres / img.size[1]]
-        scale = 0.95 * min(ratios)  # 95% to avoid clipping
+        scale = PRINT_SCALE_FACTOR * min(ratios)
 
         # Get total area for centering
-        total_w = context.GetDeviceCaps(110)  # PHYSICALWIDTH
-        total_h = context.GetDeviceCaps(111)  # PHYSICALHEIGHT
+        total_w = context.GetDeviceCaps(WIN_DEVCAP_PHYSICALWIDTH)
+        total_h = context.GetDeviceCaps(WIN_DEVCAP_PHYSICALHEIGHT)
 
         # Calculate scaled size and position
         scaled_w, scaled_h = [int(scale * i) for i in img.size]
