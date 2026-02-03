@@ -13,7 +13,7 @@ from shippy_gui.core.shipping import build_address, build_shipment
 from shippy_gui.printing.printer_manager import print_image
 
 
-class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
+class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Worker thread for async shipment creation and printing."""
 
     # Signals
@@ -21,6 +21,7 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
     success = Signal(str)  # Success message
     error = Signal(str)  # Error message
     warning = Signal(str)  # Warning message (non-blocking)
+    label_ready = Signal(object, str)  # Image ready for dialog (image, printer_name)
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
@@ -30,6 +31,7 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
         weight_lbs: int,
         printer_name: str,
         logo_path: Optional[str] = None,
+        use_dialog: bool = False,
     ):
         """Initialize the shipment worker.
 
@@ -40,6 +42,7 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
             weight_lbs: Package weight in pounds
             printer_name: Name of printer to use
             logo_path: Optional path to logo image to overlay
+            use_dialog: Whether to use system print dialog (default: False)
         """
         super().__init__()
         self.easypost_client = easypost_client
@@ -48,6 +51,7 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
         self.weight_lbs = weight_lbs
         self.printer_name = printer_name
         self.logo_path = logo_path
+        self.use_dialog = use_dialog
         self.shipment = None
 
     def run(self):
@@ -95,7 +99,13 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
                 logo = Image.open(self.logo_path)
                 image.paste(logo, (450, 425))
 
-            # Step 6: Print
+            # Step 6: Print (or emit for dialog)
+            if self.use_dialog:
+                self.label_ready.emit(image, self.printer_name)
+                # Do not emit success here; UI thread handles the rest
+                return
+
+            # Quick print path (background)
             self.progress.emit("Printing label...")
             print_image(image, self.printer_name)
 
