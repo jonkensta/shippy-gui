@@ -411,6 +411,8 @@ def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
     """
     try:
         # Auto-rotate if landscape (mirror existing behavior)
+        # Note: This might conflict with dialog orientation settings if the user
+        # explicitly chooses Landscape, but we prioritize consistency with the quick-print path.
         if img.size[0] > img.size[1]:
             img = img.rotate(90, expand=True)
 
@@ -445,4 +447,6 @@ def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
         return True
 
     except Exception:  # pylint: disable=broad-exception-caught
+        # Intentionally swallow errors here as we rely on the boolean return
+        # to signal failure to the caller, rather than raising exceptions.
         return False

@@ -428,49 +428,59 @@ class ShippingTab(
         Args:
             image: PIL Image object
             printer_name: Name of printer to pre-select
-            shipment: Shipment object for refunding if canceled/failed
+            shipment: EasyPost Shipment object for refunding
         """
-        try:
-            result = print_image_with_dialog(
-                image, self, preferred_printer_name=printer_name
+        # Note: The worker thread finishes immediately after emitting this signal,
+        # which triggers _on_shipment_finished and re-enables the Create button.
+        # This is safe because the QPrintDialog is modal and blocks UI interaction.
+
+        result = print_image_with_dialog(
+            image, self, preferred_printer_name=printer_name
+        )
+
+        if result == "printed":
+            # Success! Reuse existing success handler
+            self._on_shipment_success(
+                f"Label printed successfully! Tracking: {shipment.tracking_code}"
             )
 
-            if result == "printed":
-                # Success! Reuse existing success handler
-                self._on_shipment_success(
-                    f"Label printed successfully! Tracking: {shipment.tracking_code}"
+        elif result == "canceled":
+            # Refund the shipment silently (or with warning)
+            self._set_status("Requesting refund...", "warning")
+            try:
+                self.easypost_client.shipment.refund(shipment.id)
+                self._set_status("Print canceled. Shipment refunded.", "warning")
+                QMessageBox.warning(
+                    self,
+                    "Print Canceled",
+                    "Printing was canceled. The shipment has been refunded.",
+                )
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                self._set_status("Refund failed", "error")
+                QMessageBox.critical(
+                    self,
+                    "Refund Error",
+                    f"Print canceled but refund failed.\nError: {str(e)}",
                 )
 
-            elif result == "canceled":
-                # Refund the shipment silently (or with warning)
-                self._set_status("Requesting refund...", "warning")
-                try:
-                    self.easypost_client.shipment.refund(shipment.id)
-                    self._set_status("Print canceled. Shipment refunded.", "warning")
-                    QMessageBox.warning(
-                        self,
-                        "Print Canceled",
-                        "Printing was canceled. The shipment has been refunded.",
-                    )
-                except Exception as e:  # pylint: disable=broad-exception-caught
-                    self._on_shipment_error(f"Refund failed: {str(e)}")
-
-            elif result == "failed":
-                # Print failed
-                self._set_status("Requesting refund...", "error")
-                try:
-                    self.easypost_client.shipment.refund(shipment.id)
-                    self._on_shipment_error(
-                        "Printing failed. Shipment has been refunded."
-                    )
-                except Exception as e:  # pylint: disable=broad-exception-caught
-                    self._on_shipment_error(
-                        f"Printing failed and refund failed. Error: {str(e)}"
-                    )
-
-        finally:
-            # Always clean up UI state since worker returns early for dialog
-            self._on_shipment_finished()
+        elif result == "failed":
+            # Print failed
+            self._set_status("Requesting refund...", "error")
+            try:
+                self.easypost_client.shipment.refund(shipment.id)
+                self._set_status("Print failed. Shipment refunded.", "error")
+                QMessageBox.critical(
+                    self,
+                    "Print Failed",
+                    "Printing failed. The shipment has been refunded.",
+                )
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                self._set_status("Refund failed", "error")
+                QMessageBox.critical(
+                    self,
+                    "Refund Error",
+                    f"Printing failed and refund failed.\nError: {str(e)}",
+                )
 
     def _on_shipment_success(self, message: str):
         """Handle successful shipment.
