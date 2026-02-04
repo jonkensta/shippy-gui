@@ -1,6 +1,9 @@
 """Address parsing with Google Maps."""
 
+from typing import Optional
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
+
+from shippy_gui.core.models import ParsedAddress
 
 
 class AddressParser:
@@ -11,7 +14,7 @@ class AddressParser:
     def __init__(self, gmaps: googlemaps.Client):
         self.gmaps = gmaps
 
-    def parse_address_components(self, address_components):
+    def parse_address_components(self, address_components) -> ParsedAddress:
         """Parses the 'address_components' array using a mapping dictionary."""
         parsed = {}
 
@@ -31,14 +34,22 @@ class AddressParser:
                 input_key, output_key = component_map[component_type]
                 parsed[output_key] = component.get(input_key)
 
+        street1 = None
         if "street_number" in parsed and "street_name" in parsed:
             street_number = parsed.pop("street_number")
             street_name = parsed.pop("street_name")
-            parsed["street1"] = f"{street_number} {street_name}"
+            street1 = f"{street_number} {street_name}"
 
-        return parsed
+        return ParsedAddress(
+            street1=street1,
+            street2=parsed.get("street2"),
+            city=parsed.get("city"),
+            state=parsed.get("state"),
+            zipcode=parsed.get("zipcode"),
+            country=parsed.get("country"),
+        )
 
-    def __call__(self, address_string: str):
+    def __call__(self, address_string: str) -> Optional[ParsedAddress]:
         """Parse an address string."""
         try:
             geocode = self.gmaps.geocode(address_string, region="us")

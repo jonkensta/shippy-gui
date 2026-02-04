@@ -1,9 +1,9 @@
 """Address form widget."""
 
-from typing import Optional
+from typing import Optional, Union
 from PySide6.QtWidgets import QWidget, QFormLayout, QLineEdit  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
-from shippy_gui.core.models import RecipientAddress
+from shippy_gui.core.models import RecipientAddress, ParsedAddress
 
 
 class AddressForm(QWidget):
@@ -82,18 +82,23 @@ class AddressForm(QWidget):
             zipcode=self.zipcode_input.text().strip(),
         )
 
-    def set_address(self, data: dict):
-        """Populate fields from a dictionary."""
-        if "street1" in data:
-            self.street1_input.setText(data["street1"])
-        if "street2" in data:
-            self.street2_input.setText(data.get("street2", ""))
-        if "city" in data:
-            self.city_input.setText(data["city"])
-        if "state" in data:
-            self.state_input.setText(data["state"])
-        if "zipcode" in data:
-            self.zipcode_input.setText(data["zipcode"])
+    def set_address(self, data: Union[dict, ParsedAddress]):
+        """Populate fields from a dictionary or ParsedAddress."""
+        if isinstance(data, ParsedAddress):
+            data_dict = data.model_dump(exclude_none=True)
+        else:
+            data_dict = data
+
+        if "street1" in data_dict:
+            self.street1_input.setText(data_dict["street1"])
+        if "street2" in data_dict:
+            self.street2_input.setText(data_dict.get("street2", ""))
+        if "city" in data_dict:
+            self.city_input.setText(data_dict["city"])
+        if "state" in data_dict:
+            self.state_input.setText(data_dict["state"])
+        if "zipcode" in data_dict:
+            self.zipcode_input.setText(data_dict["zipcode"])
 
     def validate_required(self) -> Optional[str]:
         """Validate required fields and return error message if any."""
@@ -104,6 +109,12 @@ class AddressForm(QWidget):
         return None
 
     @classmethod
-    def missing_required_keys(cls, address_parts: dict) -> list[str]:
+    def missing_required_keys(
+        cls, address_parts: Union[dict, ParsedAddress]
+    ) -> list[str]:
         """Return required address keys missing from parsed components."""
-        return [key for key in cls.REQUIRED_ADDRESS_KEYS if key not in address_parts]
+        if isinstance(address_parts, ParsedAddress):
+            data_dict = address_parts.model_dump(exclude_none=True)
+        else:
+            data_dict = address_parts
+        return [key for key in cls.REQUIRED_ADDRESS_KEYS if key not in data_dict]
