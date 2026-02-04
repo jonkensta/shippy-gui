@@ -14,7 +14,14 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 from pydantic import ValidationError
 
 from shippy_gui.core.config_manager import ConfigManager
-from shippy_gui.core.constants import DEFAULT_FONT_SIZE, FONT_SIZE_MAX, FONT_SIZE_MIN
+from shippy_gui.core.constants import (
+    DEFAULT_FONT_SIZE,
+    DEFAULT_WEIGHT_LBS,
+    FONT_SIZE_MAX,
+    FONT_SIZE_MIN,
+    WEIGHT_MAX_LBS,
+    WEIGHT_MIN_LBS,
+)
 from shippy_gui.core.models import Config
 
 
@@ -92,6 +99,18 @@ class SettingsDialog(
         ui_group.setLayout(ui_layout)
         main_layout.addWidget(ui_group)
 
+        # Shipping Defaults section
+        shipping_group = QGroupBox("Shipping Defaults")
+        shipping_layout = QFormLayout()
+        self.default_weight_input = QSpinBox()
+        self.default_weight_input.setRange(WEIGHT_MIN_LBS, WEIGHT_MAX_LBS)
+        self.default_weight_input.setValue(DEFAULT_WEIGHT_LBS)
+        self.default_weight_input.setSuffix(" lbs")
+        self.default_weight_input.setToolTip("Default package weight for new shipments")
+        shipping_layout.addRow("Default Weight:", self.default_weight_input)
+        shipping_group.setLayout(shipping_layout)
+        main_layout.addWidget(shipping_group)
+
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -127,6 +146,7 @@ class SettingsDialog(
         self.return_state_input.setText(config.return_address.state)
         self.return_zipcode_input.setText(config.return_address.zipcode)
         self.font_size_input.setValue(config.get_font_size())
+        self.default_weight_input.setValue(config.get_default_weight())
 
     def _save_config(self):
         """Save configuration to config.ini file with validation."""
@@ -134,6 +154,7 @@ class SettingsDialog(
         config_dict = {
             "ui": {
                 "font_size": self.font_size_input.value(),
+                "default_weight": self.default_weight_input.value(),
             },
             "easypost": {
                 "apikey": self.easypost_key_input.text().strip(),

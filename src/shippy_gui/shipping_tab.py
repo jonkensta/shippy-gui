@@ -116,7 +116,8 @@ class ShippingTab(QWidget):
         layout.addWidget(address_group)
 
         # Shipment Details Section
-        self.shipment_controls = ShipmentControls()
+        default_weight = self.config.get_default_weight() if self.config else 1
+        self.shipment_controls = ShipmentControls(default_weight=default_weight)
         self.shipment_controls.create_requested.connect(self._create_label)
         layout.addWidget(self.shipment_controls)
 

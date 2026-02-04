@@ -5,9 +5,12 @@ from pydantic import BaseModel, field_validator
 
 from shippy_gui.core.constants import (
     DEFAULT_FONT_SIZE,
+    DEFAULT_WEIGHT_LBS,
     FONT_SIZE_MIN,
     FONT_SIZE_MAX,
     SHIPMENT_COUNTRY,
+    WEIGHT_MIN_LBS,
+    WEIGHT_MAX_LBS,
 )
 
 
@@ -15,6 +18,7 @@ class UiConfig(BaseModel):
     """Model for UI configuration."""
 
     font_size: int = DEFAULT_FONT_SIZE
+    default_weight: int = DEFAULT_WEIGHT_LBS
 
     @field_validator("font_size")
     @classmethod
@@ -24,6 +28,16 @@ class UiConfig(BaseModel):
             raise ValueError(f"Font size must be at least {FONT_SIZE_MIN}")
         if v > FONT_SIZE_MAX:
             raise ValueError(f"Font size must be at most {FONT_SIZE_MAX}")
+        return v
+
+    @field_validator("default_weight")
+    @classmethod
+    def validate_default_weight(cls, v: int) -> int:
+        """Validate default weight is within bounds."""
+        if v < WEIGHT_MIN_LBS:
+            raise ValueError(f"Weight must be at least {WEIGHT_MIN_LBS}")
+        if v > WEIGHT_MAX_LBS:
+            raise ValueError(f"Weight must be at most {WEIGHT_MAX_LBS}")
         return v
 
 
@@ -90,3 +104,7 @@ class Config(BaseModel):
     def get_font_size(self) -> int:
         """Get font size with default fallback."""
         return self.ui.font_size if self.ui else DEFAULT_FONT_SIZE
+
+    def get_default_weight(self) -> int:
+        """Get default weight with fallback."""
+        return self.ui.default_weight if self.ui else DEFAULT_WEIGHT_LBS

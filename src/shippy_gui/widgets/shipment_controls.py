@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 )
 from PySide6.QtCore import Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
-from shippy_gui.core.constants import WEIGHT_MIN_LBS, WEIGHT_MAX_LBS
+from shippy_gui.core.constants import WEIGHT_MIN_LBS, WEIGHT_MAX_LBS, DEFAULT_WEIGHT_LBS
 from shippy_gui.printing.printer_manager import (
     get_available_printers,
     get_default_printer,
@@ -24,8 +24,9 @@ class ShipmentControls(QWidget):
 
     create_requested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, default_weight: int = DEFAULT_WEIGHT_LBS, parent=None):
         super().__init__(parent)
+        self._default_weight = default_weight
         self._init_ui()
         self._load_printers()
 
@@ -35,7 +36,7 @@ class ShipmentControls(QWidget):
 
         self.weight_input = QSpinBox()
         self.weight_input.setRange(WEIGHT_MIN_LBS, WEIGHT_MAX_LBS)
-        self.weight_input.setValue(WEIGHT_MIN_LBS)
+        self.weight_input.setValue(self._default_weight)
         self.weight_input.setSuffix(" lbs")
         self.weight_input.setToolTip(
             f"Package weight in pounds ({WEIGHT_MIN_LBS}-{WEIGHT_MAX_LBS} lbs)"
@@ -92,8 +93,12 @@ class ShipmentControls(QWidget):
         self.create_button.setEnabled(enabled)
 
     def reset(self):
-        """Reset controls to defaults."""
-        self.weight_input.setValue(WEIGHT_MIN_LBS)
+        """Reset controls after successful shipment.
+
+        Note: Weight is intentionally NOT reset since users often
+        ship multiple packages of the same weight in succession.
+        """
+        # Weight is preserved between shipments
 
     def validate(self) -> Optional[str]:
         """Validate controls and return error message if any."""

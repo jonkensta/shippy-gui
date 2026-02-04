@@ -75,6 +75,7 @@ PARCEL_PREDEFINED_PACKAGE = "Parcel"
 # Weight limits for Library Mail (in pounds)
 WEIGHT_MIN_LBS = 1
 WEIGHT_MAX_LBS = 70
+DEFAULT_WEIGHT_LBS = 1
 
 # Ounces per pound for weight conversion
 OUNCES_PER_POUND = 16

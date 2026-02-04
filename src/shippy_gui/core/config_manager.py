@@ -100,7 +100,10 @@ class ConfigManager:
         """
         try:
             config_parser = configparser.ConfigParser()
-            config_parser["ui"] = {"font_size": str(config.get_font_size())}
+            config_parser["ui"] = {
+                "font_size": str(config.get_font_size()),
+                "default_weight": str(config.get_default_weight()),
+            }
             config_parser["easypost"] = {"apikey": config.easypost.apikey}
             config_parser["googlemaps"] = {"apikey": config.googlemaps.apikey}
             config_parser["return_address"] = {
