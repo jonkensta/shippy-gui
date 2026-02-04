@@ -100,10 +100,14 @@ class ConfigManager:
         """
         try:
             config_parser = configparser.ConfigParser()
+            log_file = ""
+            if config.ui and config.ui.log_file:
+                log_file = config.ui.log_file
+
             config_parser["ui"] = {
                 "font_size": str(config.get_font_size()),
                 "default_weight": str(config.get_default_weight()),
-                "log_file": config.ui.log_file or "",
+                "log_file": log_file,
             }
             config_parser["easypost"] = {"apikey": config.easypost.apikey}
             config_parser["googlemaps"] = {"apikey": config.googlemaps.apikey}
