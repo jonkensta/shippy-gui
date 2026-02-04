@@ -41,6 +41,15 @@ class ShippingTab(
     """Tab for unified shipping with address lookup."""
 
     REQUIRED_ADDRESS_FIELDS = ["street1", "city", "state", "zipcode"]
+    RECIPIENT_INPUT_FIELDS = [
+        "name_input",
+        "company_input",
+        "street1_input",
+        "street2_input",
+        "city_input",
+        "state_input",
+        "zipcode_input",
+    ]
 
     def __init__(self, config_path: Optional[str] = None, parent=None):
         """Initialize the shipping tab.
@@ -239,20 +248,8 @@ class ShippingTab(
 
     def _clear_recipient_fields(self):
         """Clear all recipient address fields."""
-        for field in self._recipient_fields():
-            field.clear()
-
-    def _recipient_fields(self) -> list[QLineEdit]:
-        """Return the list of recipient input fields."""
-        return [
-            self.name_input,
-            self.company_input,
-            self.street1_input,
-            self.street2_input,
-            self.city_input,
-            self.state_input,
-            self.zipcode_input,
-        ]
+        for field_name in self.RECIPIENT_INPUT_FIELDS:
+            getattr(self, field_name).clear()
 
     def _validate_required_fields(self) -> Optional[str]:
         """Validate required fields and return an error message if invalid."""
