@@ -56,6 +56,17 @@ class RecipientAddress(AddressBase):
     """Model for recipient address."""
 
 
+class ParsedAddress(BaseModel):
+    """Model for address parsed from external service (fields optional)."""
+
+    street1: Optional[str] = None
+    street2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zipcode: Optional[str] = None
+    country: Optional[str] = None
+
+
 class EasypostConfig(BaseModel):
     """Model for Easypost configuration."""
 
