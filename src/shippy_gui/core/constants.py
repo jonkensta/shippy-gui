@@ -66,6 +66,12 @@ FONT_SIZE_MAX = 24
 # Shipping Constants
 # ============================================================================
 
+# Service Configuration
+SHIPMENT_COUNTRY = "US"
+SHIPMENT_CARRIER = "USPS"
+SHIPMENT_SERVICE = "USPS.LIBRARYMAIL"
+PARCEL_PREDEFINED_PACKAGE = "Parcel"
+
 # Weight limits for Library Mail (in pounds)
 WEIGHT_MIN_LBS = 1
 WEIGHT_MAX_LBS = 70

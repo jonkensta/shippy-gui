@@ -22,15 +22,34 @@ class UiConfig(BaseModel):
         return v
 
 
-class ReturnAddressConfig(BaseModel):
-    """Model for return address configuration."""
+class AddressBase(BaseModel):
+    """Base model for address configuration."""
 
     name: str
+    company: Optional[str] = None
     street1: str
     street2: str = ""
     city: str
     state: str
     zipcode: str
+
+    def to_easypost_dict(self) -> dict:
+        """Convert to EasyPost address dictionary."""
+        data = self.model_dump(exclude_none=True)
+        # EasyPost uses 'zip' instead of 'zipcode'
+        data["zip"] = data.pop("zipcode")
+        # Ensure country is set (defaulting to US for now as per legacy logic)
+        data["country"] = "US"
+        data["phone"] = ""
+        return data
+
+
+class ReturnAddressConfig(AddressBase):
+    """Model for return address configuration."""
+
+
+class RecipientAddress(AddressBase):
+    """Model for recipient address."""
 
 
 class EasypostConfig(BaseModel):
