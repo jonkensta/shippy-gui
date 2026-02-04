@@ -78,7 +78,9 @@ The application requires a configuration file for the EasyPost API, Google Maps 
 
 ### Initial Setup
 
-On first run, the application will look for `config.ini` in the current working directory. If not found, it will fall back to `config.example.ini` for loading defaults. You can create `config.ini` manually or use the Settings dialog (File → Settings) from within the application. Settings are always saved to `config.ini`.
+On first run, the application requires a `config.ini` file in the current working directory. If it is missing or incomplete, the application will exit with a configuration error. You can create `config.ini` manually or use the Settings dialog (File → Settings) from within the application. Settings are always saved to `config.ini`.
+
+You can also provide an explicit config path using `--config` (see Usage below).
 
 ### Manual Configuration
 
@@ -88,6 +90,8 @@ On first run, the application will look for `config.ini` in the current working 
     ```ini
     [ui]
     font_size = 11
+    log_file = shippy.log
+    default_weight = 3
 
     [easypost]
     apikey = your_easypost_api_key_here
@@ -105,6 +109,8 @@ On first run, the application will look for `config.ini` in the current working 
     ```
 
     - `ui.font_size`: UI font size in points (8-24)
+    - `ui.log_file`: Log file path (relative to config directory or absolute)
+    - `ui.default_weight`: Default package weight in pounds
     - `easypost.apikey`: Your EasyPost API key
     - `googlemaps.apikey`: Your Google Maps API key (for address autocomplete)
     - `return_address.*`: Your return address information (sender address for labels)
@@ -134,6 +140,12 @@ Or if you installed it as a package:
 
 ```bash
 shippy-gui
+```
+
+To specify a custom config path:
+
+```bash
+shippy-gui --config /path/to/config.ini
 ```
 
 ### Running with uvx
@@ -189,7 +201,7 @@ To create the shortcut:
 ## Troubleshooting
 
 ### "Configuration Error" on startup
-- Ensure `config.ini` or `config.example.ini` exists and is properly formatted
+- Ensure `config.ini` exists and is properly formatted
 - Use File → Settings to validate and save your configuration
 
 ### "Failed to verify address" warning
