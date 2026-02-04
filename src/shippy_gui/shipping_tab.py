@@ -94,15 +94,23 @@ class ShippingTab(
         if logo_path.exists():
             self.logo_path = str(logo_path)
 
-    def _init_ui(self):  # pylint: disable=too-many-statements
+    def _init_ui(self):
         """Initialize the user interface."""
         layout = QVBoxLayout()
+        layout.addWidget(self._build_lookup_group())
+        layout.addWidget(self._build_address_group())
+        layout.addLayout(self._build_shipment_form())
+        layout.addWidget(self._build_create_button())
+        layout.addWidget(self._build_status_label())
 
-        # Quick Lookup Section
+        layout.addStretch()
+        self.setLayout(layout)
+
+    def _build_lookup_group(self) -> QGroupBox:
+        """Build the quick lookup section."""
         lookup_group = QGroupBox("Quick Lookup")
         lookup_layout = QVBoxLayout()
 
-        # Address Search
         address_search_layout = QHBoxLayout()
         address_search_layout.addWidget(QLabel("Address Search:"))
         self.address_search_input = QLineEdit()
@@ -114,9 +122,10 @@ class ShippingTab(
         lookup_layout.addLayout(address_search_layout)
 
         lookup_group.setLayout(lookup_layout)
-        layout.addWidget(lookup_group)
+        return lookup_group
 
-        # Recipient Address Section
+    def _build_address_group(self) -> QGroupBox:
+        """Build the recipient address section."""
         address_group = QGroupBox("Recipient Address")
         address_form = QFormLayout()
 
@@ -155,9 +164,10 @@ class ShippingTab(
         address_form.addRow("ZIP Code:", self.zipcode_input)
 
         address_group.setLayout(address_form)
-        layout.addWidget(address_group)
+        return address_group
 
-        # Shipment Details Section
+    def _build_shipment_form(self) -> QFormLayout:
+        """Build shipment detail inputs."""
         shipment_form = QFormLayout()
 
         self.weight_input = QSpinBox()
@@ -175,9 +185,10 @@ class ShippingTab(
         )
         shipment_form.addRow("Printer:", self.printer_combo)
 
-        layout.addLayout(shipment_form)
+        return shipment_form
 
-        # Create Label Button
+    def _build_create_button(self) -> QPushButton:
+        """Build the create label button."""
         self.create_button = QPushButton("Create Label")
         self.create_button.setDefault(True)
         self.create_button.setToolTip(
@@ -186,15 +197,13 @@ class ShippingTab(
             "Label will be automatically refunded if printing fails."
         )
         self.create_button.clicked.connect(self._create_label)
-        layout.addWidget(self.create_button)
+        return self.create_button
 
-        # Status Label
+    def _build_status_label(self) -> QLabel:
+        """Build the status label."""
         self.status_label = QLabel("Ready")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.status_label)
-
-        layout.addStretch()
-        self.setLayout(layout)
+        return self.status_label
 
     def _load_printers(self):
         """Load available printers into the combo box."""
