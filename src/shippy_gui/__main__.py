@@ -72,21 +72,29 @@ def _show_config_error(message: str) -> None:
 
 def _initialize_config(config_path: str) -> None:
     """Create a starter config.ini in the working directory."""
-    example_path = os.path.join(os.getcwd(), "config.example.ini")
-    if os.path.exists(example_path):
-        with open(example_path, "r", encoding="utf-8") as src:
-            contents = src.read()
-        with open(config_path, "w", encoding="utf-8") as dest:
-            dest.write(contents)
-        return
+    contents = _load_packaged_example_config()
+    if not contents:
+        raise RuntimeError(
+            "Unable to load packaged config.example.ini. Please reinstall shippy-gui."
+        )
 
     with open(config_path, "w", encoding="utf-8") as dest:
-        dest.write("[ui]\nfont_size = 11\ndefault_weight = 3\nlog_file = shippy.log\n")
-        dest.write("\n[easypost]\napikey =\n")
-        dest.write("\n[googlemaps]\napikey =\n")
-        dest.write(
-            "\n[return_address]\nname =\nstreet1 =\nstreet2 =\ncity =\nstate =\nzipcode =\n"
-        )
+        dest.write(contents)
+
+
+def _load_packaged_example_config() -> str:
+    """Load the packaged config.example.ini contents."""
+    try:
+        from importlib import resources  # pylint: disable=import-outside-toplevel
+
+        with (
+            resources.files("shippy_gui")
+            .joinpath("config.example.ini")
+            .open("r", encoding="utf-8") as handle
+        ):
+            return handle.read()
+    except Exception:  # pylint: disable=broad-exception-caught
+        return ""
 
 
 def _configure_app_logging(config_path: str, config) -> None:

@@ -78,7 +78,7 @@ The application requires a configuration file for the EasyPost API, Google Maps 
 
 ### Initial Setup
 
-On first run, the application requires a `config.ini` file in the current working directory. If it is missing, the application will create one and exit with a configuration error so you can open Settings and fill in the required values. If it is incomplete, the application will also exit with a configuration error. Settings are always saved to `config.ini`.
+On first run, the application requires a `config.ini` file in the current working directory. If it is missing, the application will create one from the packaged `config.example.ini` and exit with a configuration error so you can open Settings and fill in the required values. If it is incomplete, the application will also exit with a configuration error. Settings are always saved to `config.ini`.
 
 ### Manual Configuration
 
