@@ -15,10 +15,6 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped]
 
 
-class ConfigError(Exception):
-    """Raised when configuration loading or validation fails."""
-
-
 class ConfigManager:
     """Manages application configuration loading, validation, and saving.
 
@@ -56,11 +52,6 @@ class ConfigManager:
     def config(self) -> Optional[Config]:
         """The loaded configuration, or None if not loaded."""
         return self._config
-
-    @property
-    def is_loaded(self) -> bool:
-        """Whether configuration has been successfully loaded."""
-        return self._config is not None
 
     def load(self, parent_widget: Optional["QWidget"] = None) -> bool:
         """Load configuration from file.
