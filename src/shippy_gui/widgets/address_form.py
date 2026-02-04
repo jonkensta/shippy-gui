@@ -9,6 +9,15 @@ from shippy_gui.core.models import RecipientAddress
 class AddressForm(QWidget):
     """Widget for entering recipient address details."""
 
+    REQUIRED_FIELDS = [
+        ("Please enter recipient name", "name_input"),
+        ("Please enter street address", "street1_input"),
+        ("Please enter city", "city_input"),
+        ("Please enter state", "state_input"),
+        ("Please enter ZIP code", "zipcode_input"),
+    ]
+    REQUIRED_ADDRESS_KEYS = ["street1", "city", "state", "zipcode"]
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._init_ui()
@@ -88,15 +97,15 @@ class AddressForm(QWidget):
 
     def validate_required(self) -> Optional[str]:
         """Validate required fields and return error message if any."""
-        required_fields = [
-            ("Please enter recipient name", self.name_input),
-            ("Please enter street address", self.street1_input),
-            ("Please enter city", self.city_input),
-            ("Please enter state", self.state_input),
-            ("Please enter ZIP code", self.zipcode_input),
-        ]
-
-        for message, field in required_fields:
+        for message, field_name in self.REQUIRED_FIELDS:
+            field = getattr(self, field_name)
             if not field.text().strip():
                 return message
         return None
+
+    @classmethod
+    def missing_required_keys(cls, address_parts: dict) -> list[str]:
+        """Return required address keys missing from parsed components."""
+        return [
+            key for key in cls.REQUIRED_ADDRESS_KEYS if key not in address_parts
+        ]

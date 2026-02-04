@@ -20,6 +20,8 @@ from shippy_gui.printing.printer_manager import (
 class ShipmentControls(QWidget):
     """Widget for weight and printer selection."""
 
+    NO_PRINTERS_LABEL = "No printers found"
+
     create_requested = Signal()
 
     def __init__(self, parent=None):
@@ -33,7 +35,7 @@ class ShipmentControls(QWidget):
 
         self.weight_input = QSpinBox()
         self.weight_input.setRange(WEIGHT_MIN_LBS, WEIGHT_MAX_LBS)
-        self.weight_input.setValue(1)
+        self.weight_input.setValue(WEIGHT_MIN_LBS)
         self.weight_input.setSuffix(" lbs")
         self.weight_input.setToolTip(
             f"Package weight in pounds ({WEIGHT_MIN_LBS}-{WEIGHT_MAX_LBS} lbs)"
@@ -61,7 +63,7 @@ class ShipmentControls(QWidget):
         printers = get_available_printers()
 
         if not printers:
-            self.printer_combo.addItem("No printers found")
+            self.printer_combo.addItem(self.NO_PRINTERS_LABEL)
             self.create_button.setEnabled(False)
             return
 
@@ -91,10 +93,10 @@ class ShipmentControls(QWidget):
 
     def reset(self):
         """Reset controls to defaults."""
-        self.weight_input.setValue(1)
+        self.weight_input.setValue(WEIGHT_MIN_LBS)
 
     def validate(self) -> Optional[str]:
         """Validate controls and return error message if any."""
-        if self.printer_combo.currentText() == "No printers found":
+        if self.printer_combo.currentText() == self.NO_PRINTERS_LABEL:
             return "No printer selected"
         return None

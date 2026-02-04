@@ -158,6 +158,12 @@ class ShippingTab(QWidget):
             address_parts = self.address_parser(search_query)
             if not address_parts:
                 self._set_status("Could not parse address", "error")
+                QMessageBox.warning(
+                    self,
+                    "Address Parse Error",
+                    f"Could not parse the selected address:\n\n{search_query}\n\n"
+                    "Please try a different address or enter manually.",
+                )
                 return
 
             if self.address_form:
@@ -168,16 +174,33 @@ class ShippingTab(QWidget):
                 QTimer.singleShot(0, self.address_search_input.clear)
 
             # Check for missing required components in parsed address
-            required = ["street1", "city", "state", "zipcode"]
-            missing = [f for f in required if f not in address_parts]
+            missing = AddressForm.missing_required_keys(address_parts)
             if missing:
-                self._set_status(f"Missing: {', '.join(missing)}", "warning")
+                self._set_status(
+                    f"Address incomplete - missing: {', '.join(missing)}",
+                    "warning",
+                )
             else:
                 self._set_status("Address loaded successfully", "success")
 
+        except (
+            googlemaps.exceptions.ApiError,
+            googlemaps.exceptions.Timeout,
+            googlemaps.exceptions.TransportError,
+        ) as e:
+            self._set_status("Address search failed", "error")
+            QMessageBox.critical(
+                self,
+                "Address Search Error",
+                f"Google Maps API error:\n\n{e}",
+            )
         except Exception as e:  # pylint: disable=broad-exception-caught
             self._set_status("Address search failed", "error")
-            QMessageBox.critical(self, "Error", str(e))
+            QMessageBox.critical(
+                self,
+                "Address Search Error",
+                f"Error parsing address:\n\n{e}",
+            )
 
     def _create_label(self):
         """Create and print shipping label."""
