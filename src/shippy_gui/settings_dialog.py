@@ -96,6 +96,10 @@ class SettingsDialog(
         self.font_size_input.setValue(DEFAULT_FONT_SIZE)
         self.font_size_input.setSuffix(" pt")
         ui_layout.addRow("Font Size:", self.font_size_input)
+        self.log_file_input = QLineEdit()
+        self.log_file_input.setPlaceholderText("shippy.log")
+        self.log_file_input.setToolTip("Filename or path for application log file")
+        ui_layout.addRow("Log File:", self.log_file_input)
         ui_group.setLayout(ui_layout)
         main_layout.addWidget(ui_group)
 
@@ -147,6 +151,7 @@ class SettingsDialog(
         self.return_zipcode_input.setText(config.return_address.zipcode)
         self.font_size_input.setValue(config.get_font_size())
         self.default_weight_input.setValue(config.get_default_weight())
+        self.log_file_input.setText(config.ui.log_file if config.ui else "")
 
     def _save_config(self):
         """Save configuration to config.ini file with validation."""
@@ -155,6 +160,7 @@ class SettingsDialog(
             "ui": {
                 "font_size": self.font_size_input.value(),
                 "default_weight": self.default_weight_input.value(),
+                "log_file": self.log_file_input.text().strip(),
             },
             "easypost": {
                 "apikey": self.easypost_key_input.text().strip(),

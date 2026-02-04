@@ -61,6 +61,11 @@ DEFAULT_FONT_SIZE = 11
 FONT_SIZE_MIN = 8
 FONT_SIZE_MAX = 24
 
+# Logging defaults
+DEFAULT_LOG_FILENAME = "shippy.log"
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_BACKUP_COUNT = 3
+
 
 # ============================================================================
 # Shipping Constants

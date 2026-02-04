@@ -103,6 +103,7 @@ class ConfigManager:
             config_parser["ui"] = {
                 "font_size": str(config.get_font_size()),
                 "default_weight": str(config.get_default_weight()),
+                "log_file": config.ui.log_file or "",
             }
             config_parser["easypost"] = {"apikey": config.easypost.apikey}
             config_parser["googlemaps"] = {"apikey": config.googlemaps.apikey}

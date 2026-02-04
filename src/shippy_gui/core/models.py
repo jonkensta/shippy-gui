@@ -18,6 +18,7 @@ class UiConfig(BaseModel):
     """Model for UI configuration."""
 
     font_size: int = DEFAULT_FONT_SIZE
+    log_file: Optional[str] = None
     default_weight: int = DEFAULT_WEIGHT_LBS
 
     @field_validator("font_size")
@@ -104,6 +105,12 @@ class Config(BaseModel):
     def get_font_size(self) -> int:
         """Get font size with default fallback."""
         return self.ui.font_size if self.ui else DEFAULT_FONT_SIZE
+
+    def get_log_file(self, fallback: str) -> str:
+        """Get log file path with fallback."""
+        if self.ui and self.ui.log_file:
+            return self.ui.log_file
+        return fallback
 
     def get_default_weight(self) -> int:
         """Get default weight with fallback."""
