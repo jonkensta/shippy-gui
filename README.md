@@ -172,6 +172,30 @@ To create the shortcut:
 4. Name the shortcut "Shippy GUI" (or your preferred name)
 5. Click **Finish**
 
+#### Using a `.cmd` Launcher (Recommended)
+
+For more reliable startup and an explicit config path, create a small `.cmd` file and point a shortcut at it.
+
+Example `shippy-gui.cmd`:
+
+```bat
+@echo off
+setlocal
+
+REM Set working directory (where your config lives)
+cd /d "C:\InsideBooks\ShippyGUI"
+
+REM Run the app with an explicit config path
+uvx --from git+https://github.com/jonkensta/shippy-gui.git@main shippy-gui --config "C:\InsideBooks\ShippyGUI\config.ini"
+```
+
+To create the shortcut:
+
+1. Save the `.cmd` file in a stable location
+2. Right-click on your desktop and select **New → Shortcut**
+3. Browse to the `.cmd` file
+4. Name the shortcut and click **Finish**
+
 ### Application Workflow
 
 1. **Configure settings** (File → Settings) on first run
