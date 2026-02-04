@@ -221,14 +221,24 @@ class ShippingTab(
         printers = get_available_printers()
 
         if not printers:
-            self.printer_combo.addItem("No printers found")
-            self.create_button.setEnabled(False)
+            self._set_no_printers_state()
             return
 
         self.printer_combo.addItems(printers)
 
         # Select default printer if available
         default_printer = get_default_printer()
+        self._select_default_printer(printers, default_printer)
+
+    def _set_no_printers_state(self) -> None:
+        """Update UI state when no printers are available."""
+        self.printer_combo.addItem("No printers found")
+        self.create_button.setEnabled(False)
+
+    def _select_default_printer(
+        self, printers: list[str], default_printer: Optional[str]
+    ) -> None:
+        """Select default printer in the combo box if available."""
         if default_printer and default_printer in printers:
             index = printers.index(default_printer)
             self.printer_combo.setCurrentIndex(index)
@@ -290,14 +300,14 @@ class ShippingTab(
             )
             return
 
-        self._set_status(f"Parsing address: {search_query}...", "info")
+        self._set_info(f"Parsing address: {search_query}...")
 
         try:
             # Parse the address using Google Geocoding API
             address_parts = self.address_parser(search_query)
 
             if not address_parts:
-                self._set_status("Could not parse address", "error")
+                self._set_error("Could not parse address")
                 QMessageBox.warning(
                     self,
                     "Address Parse Error",
@@ -316,26 +326,25 @@ class ShippingTab(
             missing_fields = self._missing_required_address_fields(address_parts)
 
             if missing_fields:
-                self._set_status(
-                    f"Address incomplete - missing: {', '.join(missing_fields)}",
-                    "warning",
+                self._set_warning(
+                    f"Address incomplete - missing: {', '.join(missing_fields)}"
                 )
             else:
-                self._set_status("Address loaded successfully", "success")
+                self._set_success("Address loaded successfully")
 
         except (
             googlemaps.exceptions.ApiError,
             googlemaps.exceptions.Timeout,
             googlemaps.exceptions.TransportError,
         ) as e:
-            self._set_status("Address search failed", "error")
+            self._set_error("Address search failed")
             QMessageBox.critical(
                 self,
                 "Address Search Error",
                 f"Google Maps API error:\n\n{e}",
             )
         except Exception as e:  # pylint: disable=broad-exception-caught
-            self._set_status("Address search failed", "error")
+            self._set_error("Address search failed")
             QMessageBox.critical(
                 self,
                 "Address Search Error",
@@ -371,48 +380,27 @@ class ShippingTab(
         # Validate required fields
         validation_error = self._validate_required_fields()
         if validation_error:
-            self._set_status(validation_error, "error")
+            self._set_error(validation_error)
             return
 
         # Check for required services
         if not self.easypost_client:
-            QMessageBox.critical(
-                self,
-                "Configuration Error",
-                "EasyPost API not configured. Please check your config.ini file.",
+            self._show_config_error(
+                "EasyPost API not configured. Please check your config.ini file."
             )
             return
 
         if not self.config:
-            QMessageBox.critical(
-                self,
-                "Configuration Error",
-                "Configuration not loaded. Please check your config.ini file.",
+            self._show_config_error(
+                "Configuration not loaded. Please check your config.ini file."
             )
             return
 
         # Disable create button during shipment
         self.create_button.setEnabled(False)
 
-        # Build address dictionaries
-        from_address_dict = {
-            "name": self.config.return_address.name,
-            "street1": self.config.return_address.street1,
-            "street2": self.config.return_address.street2,
-            "city": self.config.return_address.city,
-            "state": self.config.return_address.state,
-            "zipcode": self.config.return_address.zipcode,
-        }
-
-        to_address_dict = {
-            "name": self.name_input.text().strip(),
-            "company": self.company_input.text().strip() or "",
-            "street1": self.street1_input.text().strip(),
-            "street2": self.street2_input.text().strip() or "",
-            "city": self.city_input.text().strip(),
-            "state": self.state_input.text().strip(),
-            "zipcode": self.zipcode_input.text().strip(),
-        }
+        from_address_dict = self._build_from_address_dict()
+        to_address_dict = self._build_to_address_dict()
 
         # Get weight and printer
         weight_lbs = self.weight_input.value()
@@ -435,10 +423,8 @@ class ShippingTab(
         )
 
         # Connect signals
-        self.shipment_worker.progress.connect(lambda msg: self._set_status(msg, "info"))
-        self.shipment_worker.warning.connect(
-            lambda msg: self._set_status(msg, "warning")
-        )
+        self.shipment_worker.progress.connect(self._set_info)
+        self.shipment_worker.warning.connect(self._set_warning)
         self.shipment_worker.success.connect(self._on_shipment_success)
         self.shipment_worker.error.connect(self._on_shipment_error)
         self.shipment_worker.finished.connect(self._on_shipment_finished)
@@ -486,27 +472,27 @@ class ShippingTab(
             reason: Reason for the refund (e.g., "Print canceled", "Print failed").
         """
         if not self.easypost_client:
-            self._set_status("Cannot refund: EasyPost not configured", "error")
+            self._set_error("Cannot refund: EasyPost not configured")
             return
 
-        self._set_status("Requesting refund...", "warning")
+        self._set_warning("Requesting refund...")
         try:
             self.easypost_client.shipment.refund(shipment.id)
-            self._set_status(f"{reason}. Shipment refunded.", "warning")
+            self._set_warning(f"{reason}. Shipment refunded.")
             QMessageBox.warning(
                 self,
                 reason,
                 f"{reason}. The shipment has been refunded.",
             )
         except easypost.errors.APIError as e:
-            self._set_status("Refund failed", "error")
+            self._set_error("Refund failed")
             QMessageBox.critical(
                 self,
                 "Refund Error",
                 f"{reason} but refund failed.\nEasyPost error: {e}",
             )
         except Exception as e:  # pylint: disable=broad-exception-caught
-            self._set_status("Refund failed", "error")
+            self._set_error("Refund failed")
             QMessageBox.critical(
                 self,
                 "Refund Error",
@@ -519,7 +505,7 @@ class ShippingTab(
         Args:
             message: Success message with tracking info
         """
-        self._set_status(message, "success")
+        self._set_success(message)
 
         # Clear all input fields for next shipment
         self.address_search_input.clear()
@@ -535,7 +521,7 @@ class ShippingTab(
         Args:
             message: Error message
         """
-        self._set_status("Shipment failed", "error")
+        self._set_error("Shipment failed")
         QMessageBox.critical(
             self,
             "Shipment Error",
@@ -558,3 +544,46 @@ class ShippingTab(
         color = STATUS_COLORS.get(status_type, STATUS_COLORS["info"])
         self.status_label.setText(message)
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+    def _set_info(self, message: str) -> None:
+        """Set an informational status."""
+        self._set_status(message, "info")
+
+    def _set_success(self, message: str) -> None:
+        """Set a success status."""
+        self._set_status(message, "success")
+
+    def _set_warning(self, message: str) -> None:
+        """Set a warning status."""
+        self._set_status(message, "warning")
+
+    def _set_error(self, message: str) -> None:
+        """Set an error status."""
+        self._set_status(message, "error")
+
+    def _show_config_error(self, message: str) -> None:
+        """Show a configuration error dialog."""
+        QMessageBox.critical(self, "Configuration Error", message)
+
+    def _build_from_address_dict(self) -> dict:
+        """Build return address dictionary."""
+        return {
+            "name": self.config.return_address.name,
+            "street1": self.config.return_address.street1,
+            "street2": self.config.return_address.street2,
+            "city": self.config.return_address.city,
+            "state": self.config.return_address.state,
+            "zipcode": self.config.return_address.zipcode,
+        }
+
+    def _build_to_address_dict(self) -> dict:
+        """Build recipient address dictionary."""
+        return {
+            "name": self.name_input.text().strip(),
+            "company": self.company_input.text().strip() or "",
+            "street1": self.street1_input.text().strip(),
+            "street2": self.street2_input.text().strip() or "",
+            "city": self.city_input.text().strip(),
+            "state": self.state_input.text().strip(),
+            "zipcode": self.zipcode_input.text().strip(),
+        }
