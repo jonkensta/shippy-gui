@@ -106,6 +106,4 @@ class AddressForm(QWidget):
     @classmethod
     def missing_required_keys(cls, address_parts: dict) -> list[str]:
         """Return required address keys missing from parsed components."""
-        return [
-            key for key in cls.REQUIRED_ADDRESS_KEYS if key not in address_parts
-        ]
+        return [key for key in cls.REQUIRED_ADDRESS_KEYS if key not in address_parts]
