@@ -18,6 +18,15 @@ class AddressForm(QWidget):
     ]
     REQUIRED_ADDRESS_KEYS = ["street1", "city", "state", "zipcode"]
 
+    # Map data keys to widget attribute names
+    ADDRESS_FIELD_MAP = {
+        "street1": "street1_input",
+        "street2": "street2_input",
+        "city": "city_input",
+        "state": "state_input",
+        "zipcode": "zipcode_input",
+    }
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._init_ui()
@@ -89,16 +98,10 @@ class AddressForm(QWidget):
         else:
             data_dict = data
 
-        if "street1" in data_dict:
-            self.street1_input.setText(data_dict["street1"])
-        if "street2" in data_dict:
-            self.street2_input.setText(data_dict.get("street2", ""))
-        if "city" in data_dict:
-            self.city_input.setText(data_dict["city"])
-        if "state" in data_dict:
-            self.state_input.setText(data_dict["state"])
-        if "zipcode" in data_dict:
-            self.zipcode_input.setText(data_dict["zipcode"])
+        for key, widget_name in self.ADDRESS_FIELD_MAP.items():
+            if key in data_dict:
+                widget = getattr(self, widget_name)
+                widget.setText(data_dict[key])
 
     def validate_required(self) -> Optional[str]:
         """Validate required fields and return error message if any."""
