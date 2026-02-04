@@ -9,7 +9,8 @@ from PySide6.QtCore import QThread, Signal  # type: ignore[import-untyped] # pyl
 
 from shippy_gui.core.constants import LOGO_PASTE_X, LOGO_PASTE_Y, OUNCES_PER_POUND
 from shippy_gui.core.misc import grab_png_from_url
-from shippy_gui.core.shipping import build_address, build_shipment
+from shippy_gui.core.services import ShipmentService
+from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
 from shippy_gui.printing.printer_manager import print_image
 
 
@@ -27,9 +28,9 @@ class ShipmentWorker(
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
-        easypost_client: easypost.EasyPostClient,
-        from_address_dict: dict,
-        to_address_dict: dict,
+        shipment_service: ShipmentService,
+        from_address: ReturnAddressConfig,
+        to_address: RecipientAddress,
         weight_lbs: int,
         printer_name: str,
         logo_path: Optional[str] = None,
@@ -38,18 +39,18 @@ class ShipmentWorker(
         """Initialize the shipment worker.
 
         Args:
-            easypost_client: EasyPost API client
-            from_address_dict: Return address dictionary
-            to_address_dict: Recipient address dictionary
+            shipment_service: Shipment logic service
+            from_address: Return address model
+            to_address: Recipient address model
             weight_lbs: Package weight in pounds
             printer_name: Name of printer to use
             logo_path: Optional path to logo image to overlay
             use_dialog: Whether to use system print dialog (default: False)
         """
         super().__init__()
-        self.easypost_client = easypost_client
-        self.from_address_dict = from_address_dict
-        self.to_address_dict = to_address_dict
+        self.service = shipment_service
+        self.from_address = from_address
+        self.to_address = to_address
         self.weight_lbs = weight_lbs
         self.printer_name = printer_name
         self.logo_path = logo_path
@@ -61,11 +62,11 @@ class ShipmentWorker(
         try:
             # Step 1: Build and verify return address
             self.progress.emit("Building return address...")
-            from_addr = build_address(self.easypost_client, **self.from_address_dict)
+            from_addr = self.service.create_address(self.from_address)
 
             try:
                 self.progress.emit("Verifying return address...")
-                self.easypost_client.address.verify(from_addr.id)
+                self.service.verify_address(from_addr.id)
             except easypost.errors.InvalidRequestError:
                 self.warning.emit(
                     "Failed to verify return address. Please check your config.ini."
@@ -73,11 +74,11 @@ class ShipmentWorker(
 
             # Step 2: Build and verify recipient address
             self.progress.emit("Building recipient address...")
-            to_addr = build_address(self.easypost_client, **self.to_address_dict)
+            to_addr = self.service.create_address(self.to_address)
 
             try:
                 self.progress.emit("Verifying recipient address...")
-                self.easypost_client.address.verify(to_addr.id)
+                self.service.verify_address(to_addr.id)
             except easypost.errors.InvalidRequestError:
                 self.warning.emit(
                     "Failed to verify recipient address. Please double-check before shipping."
@@ -86,8 +87,8 @@ class ShipmentWorker(
             # Step 3: Purchase postage
             self.progress.emit("Purchasing postage...")
             weight_oz = self.weight_lbs * OUNCES_PER_POUND
-            self.shipment = build_shipment(
-                self.easypost_client, from_addr, to_addr, weight_oz
+            self.shipment = self.service.buy_shipment(
+                from_addr.id, to_addr.id, weight_oz
             )
 
             # Step 4: Download label
@@ -134,7 +135,7 @@ class ShipmentWorker(
         if self.shipment:
             try:
                 self.progress.emit("Requesting refund...")
-                self.easypost_client.shipment.refund(self.shipment.id)
+                self.service.refund_shipment(self.shipment.id)
                 self.error.emit(f"{error_message}. Refund requested.")
             except easypost.errors.APIError as refund_error:
                 self.error.emit(f"{error_message}. Refund also failed: {refund_error}")
