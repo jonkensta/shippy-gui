@@ -78,9 +78,7 @@ The application requires a configuration file for the EasyPost API, Google Maps 
 
 ### Initial Setup
 
-On first run, the application requires a `config.ini` file in the current working directory. If it is missing or incomplete, the application will exit with a configuration error. You can create `config.ini` manually or use the Settings dialog (File → Settings) from within the application. Settings are always saved to `config.ini`.
-
-You can also provide an explicit config path using `--config` (see Usage below).
+On first run, the application requires a `config.ini` file in the current working directory. If it is missing, the application will create one and exit with a configuration error so you can open Settings and fill in the required values. If it is incomplete, the application will also exit with a configuration error. Settings are always saved to `config.ini`.
 
 ### Manual Configuration
 
@@ -142,12 +140,6 @@ Or if you installed it as a package:
 shippy-gui
 ```
 
-To specify a custom config path:
-
-```bash
-shippy-gui --config /path/to/config.ini
-```
-
 ### Running with uvx
 
 Run directly from the repository without local installation:
@@ -185,8 +177,8 @@ setlocal
 REM Set working directory (where your config lives)
 cd /d "C:\InsideBooks\ShippyGUI"
 
-REM Run the app with an explicit config path
-uvx --from git+https://github.com/jonkensta/shippy-gui.git@main shippy-gui --config "C:\InsideBooks\ShippyGUI\config.ini"
+REM Run the app
+uvx --from git+https://github.com/jonkensta/shippy-gui.git@main shippy-gui
 ```
 
 To create the shortcut:

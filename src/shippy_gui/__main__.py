@@ -1,6 +1,5 @@
 """Entry point for shippy-gui application."""
 
-import argparse
 import logging
 import os
 import sys
@@ -17,12 +16,11 @@ from shippy_gui.main_window import MainWindow
 
 def main():
     """Launch the shippy-gui application."""
-    args = _parse_args()
     app = QApplication(sys.argv)
     app.setApplicationName("Shippy GUI")
     app.setOrganizationName("Inside Books Project")
 
-    config_path = args.config or os.path.join(os.getcwd(), "config.ini")
+    config_path = os.path.join(os.getcwd(), "config.ini")
     config = _load_required_config(config_path)
 
     _configure_app_logging(config_path, config)
@@ -38,22 +36,14 @@ def main():
     sys.exit(app.exec())
 
 
-def _parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Shippy GUI")
-    parser.add_argument(
-        "--config",
-        help="Path to config.ini",
-        default=None,
-    )
-    return parser.parse_args()
-
-
 def _load_required_config(config_path: str):
     """Load config.ini or exit if missing/invalid."""
     if not os.path.exists(config_path):
+        _initialize_config(config_path)
         _show_config_error(
-            f"Missing config file:\n\n{config_path}\n\nThe application will exit."
+            "A new config.ini was created in this folder.\n\n"
+            "Please open Settings and fill in your API keys and return address, "
+            "then restart the application."
         )
         sys.exit(1)
 
@@ -78,6 +68,25 @@ def _show_config_error(message: str) -> None:
     )
 
     QMessageBox.critical(None, "Configuration Error", message)
+
+
+def _initialize_config(config_path: str) -> None:
+    """Create a starter config.ini in the working directory."""
+    example_path = os.path.join(os.getcwd(), "config.example.ini")
+    if os.path.exists(example_path):
+        with open(example_path, "r", encoding="utf-8") as src:
+            contents = src.read()
+        with open(config_path, "w", encoding="utf-8") as dest:
+            dest.write(contents)
+        return
+
+    with open(config_path, "w", encoding="utf-8") as dest:
+        dest.write("[ui]\nfont_size = 11\ndefault_weight = 3\nlog_file = shippy.log\n")
+        dest.write("\n[easypost]\napikey =\n")
+        dest.write("\n[googlemaps]\napikey =\n")
+        dest.write(
+            "\n[return_address]\nname =\nstreet1 =\nstreet2 =\ncity =\nstate =\nzipcode =\n"
+        )
 
 
 def _configure_app_logging(config_path: str, config) -> None:
