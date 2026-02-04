@@ -2,15 +2,17 @@
 
 import configparser
 import logging
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from pydantic import ValidationError
-from PySide6.QtWidgets import QMessageBox, QWidget  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.config import load_config, resolve_config_paths
 from shippy_gui.core.models import Config
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped]
 
 
 class ConfigError(Exception):
@@ -60,7 +62,7 @@ class ConfigManager:
         """Whether configuration has been successfully loaded."""
         return self._config is not None
 
-    def load(self, parent_widget: Optional[QWidget] = None) -> bool:
+    def load(self, parent_widget: Optional["QWidget"] = None) -> bool:
         """Load configuration from file.
 
         Args:
@@ -95,7 +97,7 @@ class ConfigManager:
             )
             return False
 
-    def save(self, config: Config, parent_widget: Optional[QWidget] = None) -> bool:
+    def save(self, config: Config, parent_widget: Optional["QWidget"] = None) -> bool:
         """Save configuration to file.
 
         Args:
@@ -140,7 +142,7 @@ class ConfigManager:
             return False
 
     def _handle_error(
-        self, title: str, message: str, parent_widget: Optional[QWidget]
+        self, title: str, message: str, parent_widget: Optional["QWidget"]
     ) -> None:
         """Handle an error by logging and optionally showing a dialog.
 
@@ -151,4 +153,8 @@ class ConfigManager:
         """
         logger.error("%s: %s", title, message)
         if parent_widget is not None:
+            from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module,import-outside-toplevel
+                QMessageBox,
+            )
+
             QMessageBox.critical(parent_widget, title, message)
