@@ -83,6 +83,7 @@ On first run, the application requires a `config.ini` file in the current workin
 ### Manual Configuration
 
 1.  Copy `config.example.ini` to `config.ini` in your working directory.
+    - Note: `config.example.ini` is included in the repo for development convenience and is also bundled inside the installed package for automatic bootstrap.
 2.  Populate it with your API keys and return address:
 
     ```ini
