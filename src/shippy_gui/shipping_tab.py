@@ -40,6 +40,8 @@ class ShippingTab(
 ):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Tab for unified shipping with address lookup."""
 
+    REQUIRED_ADDRESS_FIELDS = ["street1", "city", "state", "zipcode"]
+
     def __init__(self, config_path: Optional[str] = None, parent=None):
         """Initialize the shipping tab.
 
@@ -307,34 +309,14 @@ class ShippingTab(
                 )
                 return
 
-            # Clear all fields first
-            self._clear_recipient_fields()
-
-            # Populate address fields from parsed components
-            if "street1" in address_parts:
-                self.street1_input.setText(address_parts["street1"])
-
-            if "street2" in address_parts:
-                self.street2_input.setText(address_parts.get("street2", ""))
-
-            if "city" in address_parts:
-                self.city_input.setText(address_parts["city"])
-
-            if "state" in address_parts:
-                self.state_input.setText(address_parts["state"])
-
-            if "zipcode" in address_parts:
-                self.zipcode_input.setText(address_parts["zipcode"])
+            self._populate_address_fields(address_parts)
 
             # Clear search input after successful load
             # Use singleShot to ensure it clears after QCompleter has finished updating the text
             QTimer.singleShot(0, self.address_search_input.clear)
 
             # Check if address verification failed
-            required_fields = ["street1", "city", "state", "zipcode"]
-            missing_fields = [
-                field for field in required_fields if field not in address_parts
-            ]
+            missing_fields = self._missing_required_address_fields(address_parts)
 
             if missing_fields:
                 self._set_status(
@@ -362,6 +344,30 @@ class ShippingTab(
                 "Address Search Error",
                 f"Error parsing address:\n\n{e}",
             )
+
+    def _populate_address_fields(self, address_parts: dict) -> None:
+        """Populate address fields from parsed components."""
+        self._clear_recipient_fields()
+
+        field_widgets = {
+            "street1": self.street1_input,
+            "street2": self.street2_input,
+            "city": self.city_input,
+            "state": self.state_input,
+            "zipcode": self.zipcode_input,
+        }
+
+        for key, widget in field_widgets.items():
+            if key in address_parts:
+                widget.setText(address_parts.get(key, "") or "")
+
+    def _missing_required_address_fields(self, address_parts: dict) -> list[str]:
+        """Return required address fields that are missing."""
+        return [
+            field
+            for field in self.REQUIRED_ADDRESS_FIELDS
+            if field not in address_parts
+        ]
 
     def _create_label(self):  # pylint: disable=too-many-return-statements
         """Create and print shipping label."""
