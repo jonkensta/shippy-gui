@@ -3,7 +3,12 @@
 from typing import Optional
 from pydantic import BaseModel, field_validator
 
-from shippy_gui.core.constants import DEFAULT_FONT_SIZE, FONT_SIZE_MIN, FONT_SIZE_MAX
+from shippy_gui.core.constants import (
+    DEFAULT_FONT_SIZE,
+    FONT_SIZE_MIN,
+    FONT_SIZE_MAX,
+    SHIPMENT_COUNTRY,
+)
 
 
 class UiConfig(BaseModel):
@@ -38,8 +43,7 @@ class AddressBase(BaseModel):
         data = self.model_dump(exclude_none=True)
         # EasyPost uses 'zip' instead of 'zipcode'
         data["zip"] = data.pop("zipcode")
-        # Ensure country is set (defaulting to US for now as per legacy logic)
-        data["country"] = "US"
+        data["country"] = SHIPMENT_COUNTRY
         data["phone"] = ""
         return data
 
