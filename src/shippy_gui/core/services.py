@@ -27,9 +27,7 @@ class ShipmentService:
         """Verify an existing address ID."""
         return self.client.address.verify(address_id)
 
-    def buy_shipment(
-        self, from_addr_id: str, to_addr_id: str, weight_oz: float
-    ) -> Any:
+    def buy_shipment(self, from_addr_id: str, to_addr_id: str, weight_oz: float) -> Any:
         """Create a shipment, find the lowest rate, and buy postage."""
         parcel = self.client.parcel.create(
             predefined_package=PARCEL_PREDEFINED_PACKAGE, weight=weight_oz

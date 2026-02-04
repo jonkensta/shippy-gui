@@ -1,6 +1,6 @@
 """Shipment controls widget."""
 
-from typing import Optional, List
+from typing import Optional
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QWidget,
     QFormLayout,
@@ -11,7 +11,10 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 from PySide6.QtCore import Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.constants import WEIGHT_MIN_LBS, WEIGHT_MAX_LBS
-from shippy_gui.printing.printer_manager import get_available_printers, get_default_printer
+from shippy_gui.printing.printer_manager import (
+    get_available_printers,
+    get_default_printer,
+)
 
 
 class ShipmentControls(QWidget):

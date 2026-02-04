@@ -1,22 +1,17 @@
-"Unified shipping tab with manual address entry."
+"""Unified shipping tab with manual address entry."""
 
 # pylint: disable=duplicate-code  # Intentional patterns shared with settings_dialog
 
 from pathlib import Path
 from typing import Optional, Any
 
-import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
-    QFormLayout,
     QGroupBox,
     QLineEdit,
-    QSpinBox,
-    QComboBox,
-    QPushButton,
     QLabel,
     QMessageBox,
     QApplication,
@@ -24,52 +19,43 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 from PySide6.QtCore import Qt, QTimer  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.printing.printer_manager import (
-    get_available_printers,
-    get_default_printer,
     print_image_with_dialog,
 )
 from shippy_gui.core.config_manager import ConfigManager
-from shippy_gui.core.constants import STATUS_COLORS, WEIGHT_MAX_LBS, WEIGHT_MIN_LBS
+from shippy_gui.core.constants import STATUS_COLORS
 from shippy_gui.core.addresses import AddressParser
+from shippy_gui.core.services import ShipmentService
 from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
+from shippy_gui.widgets.address_form import AddressForm
+from shippy_gui.widgets.shipment_controls import ShipmentControls
 from shippy_gui.workers.shipment_worker import ShipmentWorker
 
 
-class ShippingTab(
-    QWidget
-):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
+class ShippingTab(QWidget):
     """Tab for unified shipping with address lookup."""
 
-    REQUIRED_ADDRESS_FIELDS = ["street1", "city", "state", "zipcode"]
-    RECIPIENT_INPUT_FIELDS = [
-        "name_input",
-        "company_input",
-        "street1_input",
-        "street2_input",
-        "city_input",
-        "state_input",
-        "zipcode_input",
-    ]
+    # pylint: disable=too-many-instance-attributes
 
     def __init__(self, config_path: Optional[str] = None, parent=None):
-        """Initialize the shipping tab.
-
-        Args:
-            config_path: Path to config.ini file
-            parent: Parent widget
-        """
+        """Initialize the shipping tab."""
         super().__init__(parent)
         self._config_manager = ConfigManager(config_path)
 
-        self.gmaps = None
-        self.address_parser = None
-        self.easypost_client = None
-        self.logo_path = None
-        self.shipment_worker = None
+        self.gmaps: Optional[googlemaps.Client] = None
+        self.address_parser: Optional[AddressParser] = None
+        self.shipment_service: Optional[ShipmentService] = None
+        self.logo_path: Optional[str] = None
+        self.shipment_worker: Optional[ShipmentWorker] = None
+
+        # UI Components
+        self.address_search_input: Optional[QLineEdit] = None
+        self.address_form: Optional[AddressForm] = None
+        self.shipment_controls: Optional[ShipmentControls] = None
+        self.status_label: Optional[QLabel] = None
+
         self._init_api_clients()
         self._load_logo()
         self._init_ui()
-        self._load_printers()
         self._setup_autocomplete()
 
     @property
@@ -95,12 +81,11 @@ class ShippingTab(
         self.gmaps = googlemaps.Client(key=config.googlemaps.apikey)
         self.address_parser = AddressParser(self.gmaps)
 
-        # Initialize EasyPost client
-        self.easypost_client = easypost.EasyPostClient(config.easypost.apikey)
+        # Initialize Shipment Service
+        self.shipment_service = ShipmentService(config.easypost.apikey)
 
     def _load_logo(self):
         """Load logo image if available."""
-        # Look for logo in assets directory
         logo_path = Path(__file__).parent.parent / "assets" / "logo.jpg"
         if logo_path.exists():
             self.logo_path = str(logo_path)
@@ -108,303 +93,109 @@ class ShippingTab(
     def _init_ui(self):
         """Initialize the user interface."""
         layout = QVBoxLayout()
-        layout.addWidget(self._build_lookup_group())
-        layout.addWidget(self._build_address_group())
-        layout.addLayout(self._build_shipment_form())
-        layout.addWidget(self._build_create_button())
-        layout.addWidget(self._build_status_label())
 
-        layout.addStretch()
-        self.setLayout(layout)
-
-    def _build_lookup_group(self) -> QGroupBox:
-        """Build the quick lookup section."""
+        # Quick Lookup Section
         lookup_group = QGroupBox("Quick Lookup")
         lookup_layout = QVBoxLayout()
-
         address_search_layout = QHBoxLayout()
         address_search_layout.addWidget(QLabel("Address Search:"))
         self.address_search_input = QLineEdit()
         self.address_search_input.setPlaceholderText("Start typing address...")
-        self.address_search_input.setToolTip(
-            "Type any US address and select a suggestion to populate the fields below."
-        )
+        self.address_search_input.setToolTip("Search for addresses using Google Maps")
         address_search_layout.addWidget(self.address_search_input, 1)
         lookup_layout.addLayout(address_search_layout)
-
         lookup_group.setLayout(lookup_layout)
-        return lookup_group
+        layout.addWidget(lookup_group)
 
-    def _build_address_group(self) -> QGroupBox:
-        """Build the recipient address section."""
+        # Recipient Address Section
         address_group = QGroupBox("Recipient Address")
-        address_form = QFormLayout()
+        address_layout = QVBoxLayout()
+        self.address_form = AddressForm()
+        address_layout.addWidget(self.address_form)
+        address_group.setLayout(address_layout)
+        layout.addWidget(address_group)
 
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("Recipient name")
-        self.name_input.setToolTip("Recipient's full name")
-        address_form.addRow("Name:", self.name_input)
+        # Shipment Details Section
+        self.shipment_controls = ShipmentControls()
+        self.shipment_controls.create_requested.connect(self._create_label)
+        layout.addWidget(self.shipment_controls)
 
-        self.company_input = QLineEdit()
-        self.company_input.setPlaceholderText("Optional")
-        self.company_input.setToolTip("Company or institution name (optional)")
-        address_form.addRow("Company:", self.company_input)
-
-        self.street1_input = QLineEdit()
-        self.street1_input.setToolTip("Street address line 1 (required)")
-        address_form.addRow("Street 1:", self.street1_input)
-
-        self.street2_input = QLineEdit()
-        self.street2_input.setPlaceholderText("Optional")
-        self.street2_input.setToolTip("Apartment, suite, unit, etc. (optional)")
-        address_form.addRow("Street 2:", self.street2_input)
-
-        self.city_input = QLineEdit()
-        self.city_input.setToolTip("City name (required)")
-        address_form.addRow("City:", self.city_input)
-
-        self.state_input = QLineEdit()
-        self.state_input.setPlaceholderText("TX")
-        self.state_input.setMaxLength(2)
-        self.state_input.setToolTip("Two-letter state code (e.g., TX, CA, NY)")
-        address_form.addRow("State:", self.state_input)
-
-        self.zipcode_input = QLineEdit()
-        self.zipcode_input.setPlaceholderText("78703")
-        self.zipcode_input.setToolTip("5-digit ZIP code (required)")
-        address_form.addRow("ZIP Code:", self.zipcode_input)
-
-        address_group.setLayout(address_form)
-        return address_group
-
-    def _build_shipment_form(self) -> QFormLayout:
-        """Build shipment detail inputs."""
-        shipment_form = QFormLayout()
-
-        self.weight_input = QSpinBox()
-        self.weight_input.setRange(WEIGHT_MIN_LBS, WEIGHT_MAX_LBS)
-        self.weight_input.setValue(WEIGHT_MIN_LBS)
-        self.weight_input.setSuffix(" lbs")
-        self.weight_input.setToolTip(
-            "Package weight in pounds (1-70 lbs for Library Mail rate)"
-        )
-        shipment_form.addRow("Weight:", self.weight_input)
-
-        self.printer_combo = QComboBox()
-        self.printer_combo.setToolTip(
-            "Select printer for shipping label (4x6 label size)"
-        )
-        shipment_form.addRow("Printer:", self.printer_combo)
-
-        return shipment_form
-
-    def _build_create_button(self) -> QPushButton:
-        """Build the create label button."""
-        self.create_button = QPushButton("Create Label")
-        self.create_button.setDefault(True)
-        self.create_button.setToolTip(
-            "Purchase postage, download label, and print to selected printer.\n"
-            "Hold Shift + Click to choose printer via system dialog.\n"
-            "Label will be automatically refunded if printing fails."
-        )
-        self.create_button.clicked.connect(self._create_label)
-        return self.create_button
-
-    def _build_status_label(self) -> QLabel:
-        """Build the status label."""
+        # Status Label
         self.status_label = QLabel("Ready")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        return self.status_label
+        layout.addWidget(self.status_label)
 
-    def _load_printers(self):
-        """Load available printers into the combo box."""
-        printers = get_available_printers()
-
-        if not printers:
-            self._set_no_printers_state()
-            return
-
-        self.printer_combo.addItems(printers)
-
-        # Select default printer if available
-        default_printer = get_default_printer()
-        self._select_default_printer(printers, default_printer)
-
-    def _set_no_printers_state(self) -> None:
-        """Update UI state when no printers are available."""
-        self.printer_combo.addItem("No printers found")
-        self.create_button.setEnabled(False)
-
-    def _select_default_printer(
-        self, printers: list[str], default_printer: Optional[str]
-    ) -> None:
-        """Select default printer in the combo box if available."""
-        if default_printer and default_printer in printers:
-            index = printers.index(default_printer)
-            self.printer_combo.setCurrentIndex(index)
+        layout.addStretch()
+        self.setLayout(layout)
 
     def _setup_autocomplete(self):
         """Set up Google Maps autocomplete on address search field."""
         if not self.gmaps:
             return
 
-        # Set up autocomplete with 500ms debounce (balance between responsiveness and API usage)
         completer = setup_google_maps_autocomplete(
             self.address_search_input, self.gmaps, debounce_delay=500
         )
-
-        # Automatically load address when selected from suggestions
         completer.activated.connect(self._load_address)
 
-    def _clear_recipient_fields(self):
-        """Clear all recipient address fields."""
-        for field_name in self.RECIPIENT_INPUT_FIELDS:
-            getattr(self, field_name).clear()
-
-    def _validate_required_fields(self) -> Optional[str]:
-        """Validate required fields and return an error message if invalid."""
-        required_fields = [
-            ("Please enter recipient name", self.name_input),
-            ("Please enter street address", self.street1_input),
-            ("Please enter city", self.city_input),
-            ("Please enter state", self.state_input),
-            ("Please enter ZIP code", self.zipcode_input),
-        ]
-
-        for message, field in required_fields:
-            if not field.text().strip():
-                return message
-
-        if self.printer_combo.currentText() == "No printers found":
-            return "No printer selected"
-
-        return None
-
     def _load_address(self, selected_address: Optional[str] = None):
-        """Parse selected address and populate address fields.
+        """Parse selected address and populate address fields."""
+        if not self.address_search_input:
+            return
 
-        Args:
-            selected_address: Optional address string from autocomplete.
-                            If not provided, uses the current text in search input.
-        """
         search_query = selected_address or self.address_search_input.text().strip()
         if not search_query:
             self._set_status("Please enter an address to search", "error")
             return
 
         if not self.address_parser:
-            QMessageBox.critical(
-                self,
-                "Configuration Error",
-                "Google Maps not configured. Please check your config.ini file.",
-            )
+            QMessageBox.critical(self, "Error", "Google Maps not configured.")
             return
 
-        self._set_info(f"Parsing address: {search_query}...")
+        self._set_status(f"Parsing address: {search_query}...", "info")
 
         try:
-            # Parse the address using Google Geocoding API
             address_parts = self.address_parser(search_query)
-
             if not address_parts:
-                self._set_error("Could not parse address")
-                QMessageBox.warning(
-                    self,
-                    "Address Parse Error",
-                    f"Could not parse the selected address:\n\n{search_query}\n\n"
-                    "Please try a different address or enter manually.",
-                )
+                self._set_status("Could not parse address", "error")
                 return
 
-            self._populate_address_fields(address_parts)
+            if self.address_form:
+                self.address_form.clear()
+                self.address_form.set_address(address_parts)
 
-            # Clear search input after successful load
-            # Use singleShot to ensure it clears after QCompleter has finished updating the text
-            QTimer.singleShot(0, self.address_search_input.clear)
+            if self.address_search_input:
+                QTimer.singleShot(0, self.address_search_input.clear)
 
-            # Check if address verification failed
-            missing_fields = self._missing_required_address_fields(address_parts)
-
-            if missing_fields:
-                self._set_warning(
-                    f"Address incomplete - missing: {', '.join(missing_fields)}"
-                )
+            # Check for missing required components in parsed address
+            required = ["street1", "city", "state", "zipcode"]
+            missing = [f for f in required if f not in address_parts]
+            if missing:
+                self._set_status(f"Missing: {', '.join(missing)}", "warning")
             else:
-                self._set_success("Address loaded successfully")
+                self._set_status("Address loaded successfully", "success")
 
-        except (
-            googlemaps.exceptions.ApiError,
-            googlemaps.exceptions.Timeout,
-            googlemaps.exceptions.TransportError,
-        ) as e:
-            self._set_error("Address search failed")
-            QMessageBox.critical(
-                self,
-                "Address Search Error",
-                f"Google Maps API error:\n\n{e}",
-            )
         except Exception as e:  # pylint: disable=broad-exception-caught
-            self._set_error("Address search failed")
-            QMessageBox.critical(
-                self,
-                "Address Search Error",
-                f"Error parsing address:\n\n{e}",
-            )
+            self._set_status("Address search failed", "error")
+            QMessageBox.critical(self, "Error", str(e))
 
-    def _populate_address_fields(self, address_parts: dict) -> None:
-        """Populate address fields from parsed components."""
-        self._clear_recipient_fields()
-
-        field_widgets = {
-            "street1": self.street1_input,
-            "street2": self.street2_input,
-            "city": self.city_input,
-            "state": self.state_input,
-            "zipcode": self.zipcode_input,
-        }
-
-        for key, widget in field_widgets.items():
-            if key in address_parts:
-                widget.setText(address_parts.get(key, "") or "")
-
-    def _missing_required_address_fields(self, address_parts: dict) -> list[str]:
-        """Return required address fields that are missing."""
-        return [
-            field
-            for field in self.REQUIRED_ADDRESS_FIELDS
-            if field not in address_parts
-        ]
-
-    def _create_label(self):  # pylint: disable=too-many-return-statements
+    def _create_label(self):
         """Create and print shipping label."""
-        # Validate required fields
-        validation_error = self._validate_required_fields()
+        if not self.address_form or not self.shipment_controls:
+            return
+
+        validation_error = (
+            self.address_form.validate_required() or self.shipment_controls.validate()
+        )
         if validation_error:
-            self._set_error(validation_error)
+            self._set_status(validation_error, "error")
             return
 
-        # Check for required services
-        if not self.easypost_client:
-            self._show_config_error(
-                "EasyPost API not configured. Please check your config.ini file."
-            )
+        if not self.shipment_service or not self.config:
+            QMessageBox.critical(self, "Error", "Services not configured.")
             return
 
-        if not self.config:
-            self._show_config_error(
-                "Configuration not loaded. Please check your config.ini file."
-            )
-            return
-
-        # Disable create button during shipment
-        self.create_button.setEnabled(False)
-
-        from_address_dict = self._build_from_address_dict()
-        to_address_dict = self._build_to_address_dict()
-
-        # Get weight and printer
-        weight_lbs = self.weight_input.value()
-        printer_name = self.printer_combo.currentText()
+        self.shipment_controls.set_enabled(False)
 
         # Check for Shift key to enable print dialog
         use_dialog = (
@@ -413,39 +204,28 @@ class ShippingTab(
 
         # Create and start worker thread
         self.shipment_worker = ShipmentWorker(
-            easypost_client=self.easypost_client,
-            from_address_dict=from_address_dict,
-            to_address_dict=to_address_dict,
-            weight_lbs=weight_lbs,
-            printer_name=printer_name,
+            shipment_service=self.shipment_service,
+            from_address=self.config.return_address,
+            to_address=self.address_form.get_address(),
+            weight_lbs=self.shipment_controls.weight_lbs,
+            printer_name=self.shipment_controls.printer_name,
             logo_path=self.logo_path,
             use_dialog=use_dialog,
         )
 
-        # Connect signals
-        self.shipment_worker.progress.connect(self._set_info)
-        self.shipment_worker.warning.connect(self._set_warning)
+        self.shipment_worker.progress.connect(lambda msg: self._set_status(msg, "info"))
+        self.shipment_worker.warning.connect(
+            lambda msg: self._set_status(msg, "warning")
+        )
         self.shipment_worker.success.connect(self._on_shipment_success)
         self.shipment_worker.error.connect(self._on_shipment_error)
         self.shipment_worker.finished.connect(self._on_shipment_finished)
         self.shipment_worker.label_ready.connect(self._on_label_ready)
-
-        # Start the worker
         self.shipment_worker.start()
 
     def _on_label_ready(self, image, printer_name: str, shipment: Any):
-        """Handle label ready for printing via system dialog.
-
-        Args:
-            image: PIL Image object
-            printer_name: Name of printer to pre-select
-            shipment: EasyPost Shipment object for refunding
-        """
-        # Note: The worker thread finishes immediately after emitting this signal,
-        # which triggers _on_shipment_finished and re-enables the Create button.
-        # This is safe because the QPrintDialog is modal and blocks UI interaction.
-
-        if not self.easypost_client:
+        """Handle label ready for printing via system dialog."""
+        if not self.shipment_service:
             return
 
         result = print_image_with_dialog(
@@ -453,137 +233,50 @@ class ShippingTab(
         )
 
         if result == "printed":
-            # Success! Reuse existing success handler
             self._on_shipment_success(
-                f"Label printed successfully! Tracking: {shipment.tracking_code}"
+                f"Label printed! Tracking: {shipment.tracking_code}"
             )
-
-        elif result == "canceled":
-            self._refund_shipment(shipment, "Print canceled")
-
-        elif result == "failed":
-            self._refund_shipment(shipment, "Print failed")
+        elif result in ("canceled", "failed"):
+            self._refund_shipment(shipment, f"Print {result}")
 
     def _refund_shipment(self, shipment, reason: str) -> None:
-        """Request a refund for a shipment.
-
-        Args:
-            shipment: EasyPost Shipment object.
-            reason: Reason for the refund (e.g., "Print canceled", "Print failed").
-        """
-        if not self.easypost_client:
-            self._set_error("Cannot refund: EasyPost not configured")
+        """Request a refund for a shipment."""
+        if not self.shipment_service:
             return
 
-        self._set_warning("Requesting refund...")
+        self._set_status("Requesting refund...", "warning")
         try:
-            self.easypost_client.shipment.refund(shipment.id)
-            self._set_warning(f"{reason}. Shipment refunded.")
-            QMessageBox.warning(
-                self,
-                reason,
-                f"{reason}. The shipment has been refunded.",
-            )
-        except easypost.errors.APIError as e:
-            self._set_error("Refund failed")
-            QMessageBox.critical(
-                self,
-                "Refund Error",
-                f"{reason} but refund failed.\nEasyPost error: {e}",
-            )
+            self.shipment_service.refund_shipment(shipment.id)
+            self._set_status(f"{reason}. Refunded.", "warning")
         except Exception as e:  # pylint: disable=broad-exception-caught
-            self._set_error("Refund failed")
-            QMessageBox.critical(
-                self,
-                "Refund Error",
-                f"{reason} but refund failed.\nError: {e}",
-            )
+            self._set_status("Refund failed", "error")
+            QMessageBox.critical(self, "Refund Error", str(e))
 
     def _on_shipment_success(self, message: str):
-        """Handle successful shipment.
-
-        Args:
-            message: Success message with tracking info
-        """
-        self._set_success(message)
-
-        # Clear all input fields for next shipment
-        self.address_search_input.clear()
-        self._clear_recipient_fields()
-        self.weight_input.setValue(WEIGHT_MIN_LBS)
-
-        # Focus on first input
-        self.address_search_input.setFocus()
+        """Handle successful shipment."""
+        self._set_status(message, "success")
+        if self.address_form:
+            self.address_form.clear()
+        if self.shipment_controls:
+            self.shipment_controls.reset()
+        if self.address_search_input:
+            self.address_search_input.setFocus()
 
     def _on_shipment_error(self, message: str):
-        """Handle shipment error.
-
-        Args:
-            message: Error message
-        """
-        self._set_error("Shipment failed")
-        QMessageBox.critical(
-            self,
-            "Shipment Error",
-            message,
-        )
+        """Handle shipment error."""
+        self._set_status("Shipment failed", "error")
+        QMessageBox.critical(self, "Shipment Error", message)
 
     def _on_shipment_finished(self):
         """Handle worker thread completion."""
-        # Re-enable create button
-        self.create_button.setEnabled(True)
+        if self.shipment_controls:
+            self.shipment_controls.set_enabled(True)
         self.shipment_worker = None
 
     def _set_status(self, message: str, status_type: str = "info"):
-        """Set status message with color coding.
-
-        Args:
-            message: Status message to display
-            status_type: One of "info", "success", "warning", "error"
-        """
+        """Set status message with color coding."""
+        if not self.status_label:
+            return
         color = STATUS_COLORS.get(status_type, STATUS_COLORS["info"])
         self.status_label.setText(message)
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
-
-    def _set_info(self, message: str) -> None:
-        """Set an informational status."""
-        self._set_status(message, "info")
-
-    def _set_success(self, message: str) -> None:
-        """Set a success status."""
-        self._set_status(message, "success")
-
-    def _set_warning(self, message: str) -> None:
-        """Set a warning status."""
-        self._set_status(message, "warning")
-
-    def _set_error(self, message: str) -> None:
-        """Set an error status."""
-        self._set_status(message, "error")
-
-    def _show_config_error(self, message: str) -> None:
-        """Show a configuration error dialog."""
-        QMessageBox.critical(self, "Configuration Error", message)
-
-    def _build_from_address_dict(self) -> dict:
-        """Build return address dictionary."""
-        return {
-            "name": self.config.return_address.name,
-            "street1": self.config.return_address.street1,
-            "street2": self.config.return_address.street2,
-            "city": self.config.return_address.city,
-            "state": self.config.return_address.state,
-            "zipcode": self.config.return_address.zipcode,
-        }
-
-    def _build_to_address_dict(self) -> dict:
-        """Build recipient address dictionary."""
-        return {
-            "name": self.name_input.text().strip(),
-            "company": self.company_input.text().strip() or "",
-            "street1": self.street1_input.text().strip(),
-            "street2": self.street2_input.text().strip() or "",
-            "city": self.city_input.text().strip(),
-            "state": self.state_input.text().strip(),
-            "zipcode": self.zipcode_input.text().strip(),
-        }
