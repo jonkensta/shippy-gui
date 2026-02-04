@@ -221,7 +221,7 @@ To create the shortcut:
 ## Development
 
 This application shares core shipping logic with the [shippy CLI tool](https://github.com/jonkensta/shippy). The following modules are reused:
-- `core/shipping.py` - EasyPost wrapper
+- `core/services.py` - EasyPost wrapper
 - `core/addresses.py` - Google Maps geocoding
 - `core/models.py` - Pydantic configuration models
 
