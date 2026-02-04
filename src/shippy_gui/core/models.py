@@ -53,6 +53,14 @@ class AddressBase(BaseModel):
     state: str
     zipcode: str
 
+    @field_validator("name", "street1", "city", "state", "zipcode")
+    @classmethod
+    def validate_required_text(cls, v: str) -> str:
+        """Ensure required address fields are not empty."""
+        if not v.strip():
+            raise ValueError("Required address fields cannot be empty")
+        return v
+
     def to_easypost_dict(self) -> dict:
         """Convert to EasyPost address dictionary."""
         data = self.model_dump(exclude_none=True)
@@ -87,11 +95,27 @@ class EasypostConfig(BaseModel):
 
     apikey: str
 
+    @field_validator("apikey")
+    @classmethod
+    def validate_apikey(cls, v: str) -> str:
+        """Ensure API key is not empty."""
+        if not v.strip():
+            raise ValueError("EasyPost API key is required")
+        return v
+
 
 class GoogleMapsConfig(BaseModel):
     """Model for Google Maps configuration."""
 
     apikey: str
+
+    @field_validator("apikey")
+    @classmethod
+    def validate_apikey(cls, v: str) -> str:
+        """Ensure API key is not empty."""
+        if not v.strip():
+            raise ValueError("Google Maps API key is required")
+        return v
 
 
 class Config(BaseModel):
