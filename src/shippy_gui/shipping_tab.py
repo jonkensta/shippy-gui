@@ -3,7 +3,7 @@
 # pylint: disable=duplicate-code  # Intentional patterns shared with settings_dialog
 
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional
 
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
@@ -13,26 +13,23 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QGroupBox,
     QLineEdit,
     QLabel,
-    QMessageBox,
-    QApplication,
 )
-from PySide6.QtCore import Qt, QTimer  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
-from shippy_gui.printing.printer_manager import (
-    print_image_with_dialog,
-)
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.config_manager import ConfigManager
-from shippy_gui.core.constants import STATUS_COLORS
-from shippy_gui.core.models import AutocompletePrediction
 from shippy_gui.core.services import ShipmentService
+from shippy_gui.shipping_coordinators import (
+    AddressLookupCoordinator,
+    ShipmentFlowCoordinator,
+    ShippingStatusPresenter,
+)
 from shippy_gui.widgets.autocomplete import (
     GoogleMapsCompleter,
     setup_google_maps_autocomplete,
 )
 from shippy_gui.widgets.address_form import AddressForm
 from shippy_gui.widgets.shipment_controls import ShipmentControls
-from shippy_gui.workers.shipment_worker import ShipmentWorker
 
 
 class ShippingTab(QWidget):
@@ -49,7 +46,6 @@ class ShippingTab(QWidget):
         self.address_parser: Optional[AddressParser] = None
         self.shipment_service: Optional[ShipmentService] = None
         self.logo_path: Optional[str] = None
-        self.shipment_worker: Optional[ShipmentWorker] = None
 
         # UI Components
         self.address_search_input: Optional[QLineEdit] = None
@@ -57,10 +53,14 @@ class ShippingTab(QWidget):
         self.address_completer: Optional[GoogleMapsCompleter] = None
         self.shipment_controls: Optional[ShipmentControls] = None
         self.status_label: Optional[QLabel] = None
+        self.status_presenter: Optional[ShippingStatusPresenter] = None
+        self.address_lookup: Optional[AddressLookupCoordinator] = None
+        self.shipment_flow: Optional[ShipmentFlowCoordinator] = None
 
         self._init_api_clients()
         self._load_logo()
         self._init_ui()
+        self._init_coordinators()
         self._setup_autocomplete()
 
     @property
@@ -112,6 +112,8 @@ class ShippingTab(QWidget):
         ):
             self.shipment_controls.weight_input.setValue(config.get_default_weight())
 
+        self._setup_autocomplete()
+
         return True
 
     def _load_logo(self):
@@ -148,7 +150,6 @@ class ShippingTab(QWidget):
         # Shipment Details Section
         default_weight = self.config.get_default_weight() if self.config else 1
         self.shipment_controls = ShipmentControls(default_weight=default_weight)
-        self.shipment_controls.create_requested.connect(self._create_label)
         layout.addWidget(self.shipment_controls)
 
         # Status Label
@@ -159,183 +160,57 @@ class ShippingTab(QWidget):
         layout.addStretch()
         self.setLayout(layout)
 
+    def _init_coordinators(self):
+        """Create helper objects that own status and workflow behavior."""
+        if (
+            not self.address_search_input
+            or not self.address_form
+            or not self.shipment_controls
+            or not self.status_label
+        ):
+            return
+
+        self.status_presenter = ShippingStatusPresenter(self.status_label)
+        self.address_lookup = AddressLookupCoordinator(
+            parent_widget=self,
+            search_input=self.address_search_input,
+            address_form=self.address_form,
+            status_presenter=self.status_presenter,
+            get_address_parser=lambda: self.address_parser,
+            get_address_completer=lambda: self.address_completer,
+        )
+        self.shipment_flow = ShipmentFlowCoordinator(
+            parent_widget=self,
+            address_search_input=self.address_search_input,
+            address_form=self.address_form,
+            shipment_controls=self.shipment_controls,
+            status_presenter=self.status_presenter,
+            get_config=lambda: self.config,
+            get_shipment_service=lambda: self.shipment_service,
+            get_logo_path=lambda: self.logo_path,
+        )
+        self.shipment_controls.create_requested.connect(self.shipment_flow.create_label)
+
     def _setup_autocomplete(self):
         """Set up Google Maps autocomplete on address search field."""
-        if not self.gmaps:
+        if not self.gmaps or not self.address_search_input or not self.address_lookup:
             return
+
+        if self.address_completer:
+            try:
+                self.address_search_input.textChanged.disconnect(
+                    self.address_completer.update_completions
+                )
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                self.address_completer.activated.disconnect(
+                    self.address_lookup.load_address
+                )
+            except (RuntimeError, TypeError):
+                pass
 
         self.address_completer = setup_google_maps_autocomplete(
             self.address_search_input, self.gmaps, debounce_delay=500
         )
-        self.address_completer.activated.connect(self._load_address)
-
-    def _load_address(self, selected_address: Optional[str] = None):
-        """Parse selected address and populate address fields."""
-        if not self.address_search_input:
-            return
-
-        search_query = selected_address or self.address_search_input.text().strip()
-        if not search_query:
-            self._set_status("Please enter an address to search", "error")
-            return
-
-        if not self.address_parser:
-            QMessageBox.critical(self, "Error", "Google Maps not configured.")
-            return
-
-        selected_prediction: Optional[AutocompletePrediction] = None
-        if selected_address and self.address_completer:
-            selected_prediction = self.address_completer.get_prediction_for_text(
-                selected_address
-            )
-
-        self._set_status(f"Parsing address: {search_query}...", "info")
-
-        try:
-            address_parts = self.address_parser(selected_prediction or search_query)
-            if not address_parts:
-                self._set_status("Could not parse address", "error")
-                QMessageBox.warning(
-                    self,
-                    "Address Parse Error",
-                    f"Could not parse the selected address:\n\n{search_query}\n\n"
-                    "Please try a different address or enter manually.",
-                )
-                return
-
-            if self.address_form:
-                self.address_form.merge_address(address_parts)
-
-            if self.address_search_input:
-                QTimer.singleShot(0, self.address_search_input.clear)
-
-            # Check for missing required components in parsed address
-            missing = AddressForm.missing_required_keys(address_parts)
-            if missing:
-                self._set_status(
-                    f"Address incomplete - missing: {', '.join(missing)}",
-                    "warning",
-                )
-            else:
-                self._set_status("Address loaded successfully", "success")
-
-        except (
-            googlemaps.exceptions.ApiError,
-            googlemaps.exceptions.Timeout,
-            googlemaps.exceptions.TransportError,
-        ) as e:
-            self._set_status("Address search failed", "error")
-            QMessageBox.critical(
-                self,
-                "Address Search Error",
-                f"Google Maps API error:\n\n{e}",
-            )
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            self._set_status("Address search failed", "error")
-            QMessageBox.critical(
-                self,
-                "Address Search Error",
-                f"Error parsing address:\n\n{e}",
-            )
-
-    def _create_label(self):
-        """Create and print shipping label."""
-        if not self.address_form or not self.shipment_controls:
-            return
-
-        validation_error = (
-            self.address_form.validate_required() or self.shipment_controls.validate()
-        )
-        if validation_error:
-            self._set_status(validation_error, "error")
-            return
-
-        if not self.shipment_service or not self.config:
-            QMessageBox.critical(self, "Error", "Services not configured.")
-            return
-
-        self.shipment_controls.set_enabled(False)
-
-        # Check for Shift key to enable print dialog
-        use_dialog = (
-            QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier
-        ) == Qt.KeyboardModifier.ShiftModifier
-
-        # Create and start worker thread
-        self.shipment_worker = ShipmentWorker(
-            shipment_service=self.shipment_service,
-            from_address=self.config.return_address,
-            to_address=self.address_form.get_address(),
-            weight_lbs=self.shipment_controls.weight_lbs,
-            printer_name=self.shipment_controls.printer_name,
-            logo_path=self.logo_path,
-            use_dialog=use_dialog,
-        )
-
-        self.shipment_worker.progress.connect(lambda msg: self._set_status(msg, "info"))
-        self.shipment_worker.warning.connect(
-            lambda msg: self._set_status(msg, "warning")
-        )
-        self.shipment_worker.success.connect(self._on_shipment_success)
-        self.shipment_worker.error.connect(self._on_shipment_error)
-        self.shipment_worker.finished.connect(self._on_shipment_finished)
-        self.shipment_worker.label_ready.connect(self._on_label_ready)
-        self.shipment_worker.start()
-
-    def _on_label_ready(self, image, printer_name: str, shipment: Any):
-        """Handle label ready for printing via system dialog."""
-        if not self.shipment_service:
-            return
-
-        result = print_image_with_dialog(
-            image, self, preferred_printer_name=printer_name
-        )
-
-        if result == "printed":
-            self._on_shipment_success(
-                f"Label printed! Tracking: {shipment.tracking_code}"
-            )
-        elif result in ("canceled", "failed"):
-            self._refund_shipment(shipment, f"Print {result}")
-
-    def _refund_shipment(self, shipment, reason: str) -> None:
-        """Request a refund for a shipment."""
-        if not self.shipment_service:
-            return
-
-        self._set_status("Requesting refund...", "warning")
-        try:
-            self.shipment_service.refund_shipment(shipment.id)
-            self._set_status(f"{reason}. Refunded.", "warning")
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            self._set_status("Refund failed", "error")
-            QMessageBox.critical(self, "Refund Error", str(e))
-
-    def _on_shipment_success(self, message: str):
-        """Handle successful shipment."""
-        self._set_status(message, "success")
-        if self.address_form:
-            self.address_form.clear()
-        if self.shipment_controls:
-            self.shipment_controls.reset()
-        if self.address_search_input:
-            self.address_search_input.setFocus()
-
-    def _on_shipment_error(self, message: str):
-        """Handle shipment error."""
-        self._set_status("Shipment failed", "error")
-        QMessageBox.critical(self, "Shipment Error", message)
-
-    def _on_shipment_finished(self):
-        """Handle worker thread completion."""
-        if self.shipment_controls:
-            self.shipment_controls.set_enabled(True)
-        self.shipment_worker = None
-
-    def _set_status(self, message: str, status_type: str = "info"):
-        """Set status message with color coding."""
-        if not self.status_label:
-            return
-        color = STATUS_COLORS.get(status_type, STATUS_COLORS["info"])
-        self.status_label.setText(message)
-        self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        self.address_completer.activated.connect(self.address_lookup.load_address)
