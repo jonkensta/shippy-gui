@@ -1,10 +1,13 @@
 """Google Maps autocomplete widget for Qt."""
 
 import logging
+from typing import Optional
 
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
 from PySide6.QtCore import QStringListModel, Qt, QThread, QTimer, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QCompleter, QLineEdit  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+
+from shippy_gui.core.models import AutocompletePrediction
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +15,7 @@ logger = logging.getLogger(__name__)
 class GoogleMapsLookupWorker(QThread):  # pylint: disable=too-few-public-methods
     """Worker thread for Google Maps API calls."""
 
-    results_ready = Signal(int, list)  # (request_id, list of address strings)
+    results_ready = Signal(int, list)  # (request_id, list of predictions)
     error_occurred = Signal(int, str)  # (request_id, error message)
 
     def __init__(self, gmaps: googlemaps.Client, search_text: str, request_id: int):
@@ -28,7 +31,13 @@ class GoogleMapsLookupWorker(QThread):  # pylint: disable=too-few-public-methods
                 input_text=self.search_text, components={"country": "US"}
             )
             predictions = [
-                prediction["description"] for prediction in places_autocomplete
+                AutocompletePrediction(
+                    description=prediction["description"],
+                    place_id=prediction.get("place_id"),
+                    structured_formatting=prediction.get("structured_formatting"),
+                    types=prediction.get("types", []),
+                )
+                for prediction in places_autocomplete
             ]
             self.results_ready.emit(self.request_id, predictions)
         except (
@@ -57,7 +66,8 @@ class GoogleMapsCompleter(
         super().__init__(parent)
         self.gmaps = gmaps
         self.debounce_delay = debounce_delay
-        self.cache: dict[str, list[str]] = {}
+        self.cache: dict[str, list[AutocompletePrediction]] = {}
+        self.current_predictions: list[AutocompletePrediction] = []
         self.current_worker = None
         self.current_text = ""
         self.next_request_id = 0
@@ -85,12 +95,16 @@ class GoogleMapsCompleter(
 
         # Minimum 3 characters required
         if len(text) < 3:
+            self.current_predictions = []
             self.model.setStringList([])
             return
 
         # Check cache first
         if text in self.cache:
-            self.model.setStringList(self.cache[text])
+            self.current_predictions = self.cache[text]
+            self.model.setStringList(
+                [prediction.description for prediction in self.current_predictions]
+            )
             # Force the popup to show when using cached results
             if self.cache[text]:
                 self.complete()
@@ -122,7 +136,12 @@ class GoogleMapsCompleter(
         self.current_worker.error_occurred.connect(self._on_error)
         self.current_worker.start()
 
-    def _on_results_ready(self, text: str, request_id: int, predictions: list[str]):
+    def _on_results_ready(
+        self,
+        text: str,
+        request_id: int,
+        predictions: list[AutocompletePrediction],
+    ):
         """Handle results from worker thread.
 
         Args:
@@ -139,7 +158,10 @@ class GoogleMapsCompleter(
 
         # Update model if this is still the current text
         if text == self.current_text:
-            self.model.setStringList(predictions)
+            self.current_predictions = predictions
+            descriptions = [prediction.description for prediction in predictions]
+            self.model.setStringList(descriptions)
+            self._log_duplicate_descriptions(descriptions)
             # Force the popup to show since the model was updated asynchronously
             if predictions:
                 self.complete()
@@ -156,8 +178,35 @@ class GoogleMapsCompleter(
             return
 
         # Clear completions on error
+        self.current_predictions = []
         self.model.setStringList([])
         logger.warning("Google Maps API error: %s", error_message)
+
+    def get_prediction_for_text(
+        self, description: str
+    ) -> Optional[AutocompletePrediction]:
+        """Return the first stored prediction matching the activated text."""
+        matches = [
+            prediction
+            for prediction in self.current_predictions
+            if prediction.description == description
+        ]
+        if len(matches) > 1:
+            logger.debug("Duplicate autocomplete descriptions for '%s'", description)
+        return matches[0] if matches else None
+
+    @staticmethod
+    def _log_duplicate_descriptions(descriptions: list[str]) -> None:
+        """Log duplicate descriptions to aid future collision handling."""
+        seen: set[str] = set()
+        duplicates: set[str] = set()
+        for description in descriptions:
+            if description in seen:
+                duplicates.add(description)
+                continue
+            seen.add(description)
+        for description in duplicates:
+            logger.debug("Duplicate autocomplete description returned: %s", description)
 
 
 def setup_google_maps_autocomplete(

@@ -3,7 +3,7 @@
 from typing import Optional
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
 
-from shippy_gui.core.models import ParsedAddress
+from shippy_gui.core.models import AutocompletePrediction, ParsedAddress
 
 
 class AddressParser:
@@ -49,8 +49,15 @@ class AddressParser:
             country=parsed.get("country"),
         )
 
-    def __call__(self, address_string: str) -> Optional[ParsedAddress]:
+    def __call__(
+        self, selected_address: str | AutocompletePrediction
+    ) -> Optional[ParsedAddress]:
         """Parse an address string."""
+        if isinstance(selected_address, AutocompletePrediction):
+            address_string = selected_address.description
+        else:
+            address_string = selected_address
+
         try:
             geocode = self.gmaps.geocode(address_string, region="us")
         except (
