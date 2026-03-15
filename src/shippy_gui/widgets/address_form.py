@@ -103,6 +103,19 @@ class AddressForm(QWidget):
                 widget = getattr(self, widget_name)
                 widget.setText(data_dict[key])
 
+    def merge_address(self, data: Union[dict, ParsedAddress]):
+        """Populate only non-empty parsed values without clearing existing fields."""
+        if isinstance(data, ParsedAddress):
+            data_dict = data.model_dump(exclude_none=True)
+        else:
+            data_dict = data
+
+        for key, widget_name in self.ADDRESS_FIELD_MAP.items():
+            value = data_dict.get(key)
+            if value:
+                widget = getattr(self, widget_name)
+                widget.setText(value)
+
     def validate_required(self) -> Optional[str]:
         """Validate required fields and return error message if any."""
         for message, field_name in self.REQUIRED_FIELDS:

@@ -1,6 +1,6 @@
 """Pydantic models for configuration checking."""
 
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, field_validator
 
 from shippy_gui.core.constants import (
@@ -88,6 +88,16 @@ class ParsedAddress(BaseModel):
     state: Optional[str] = None
     zipcode: Optional[str] = None
     country: Optional[str] = None
+
+
+class AutocompletePrediction(BaseModel):
+    """Structured Google autocomplete prediction used for follow-up lookup."""
+
+    description: str
+    place_id: Optional[str] = None
+    # Retained for future UI refinements even though the current flow only needs place_id.
+    structured_formatting: Optional[dict[str, Any]] = None
+    types: list[str] = []
 
 
 class EasypostConfig(BaseModel):

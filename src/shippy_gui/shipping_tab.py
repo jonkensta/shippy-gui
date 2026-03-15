@@ -24,8 +24,12 @@ from shippy_gui.printing.printer_manager import (
 from shippy_gui.core.config_manager import ConfigManager
 from shippy_gui.core.constants import STATUS_COLORS
 from shippy_gui.core.addresses import AddressParser
+from shippy_gui.core.models import AutocompletePrediction
 from shippy_gui.core.services import ShipmentService
-from shippy_gui.widgets.autocomplete import setup_google_maps_autocomplete
+from shippy_gui.widgets.autocomplete import (
+    GoogleMapsCompleter,
+    setup_google_maps_autocomplete,
+)
 from shippy_gui.widgets.address_form import AddressForm
 from shippy_gui.widgets.shipment_controls import ShipmentControls
 from shippy_gui.workers.shipment_worker import ShipmentWorker
@@ -50,6 +54,7 @@ class ShippingTab(QWidget):
         # UI Components
         self.address_search_input: Optional[QLineEdit] = None
         self.address_form: Optional[AddressForm] = None
+        self.address_completer: Optional[GoogleMapsCompleter] = None
         self.shipment_controls: Optional[ShipmentControls] = None
         self.status_label: Optional[QLabel] = None
 
@@ -134,10 +139,10 @@ class ShippingTab(QWidget):
         if not self.gmaps:
             return
 
-        completer = setup_google_maps_autocomplete(
+        self.address_completer = setup_google_maps_autocomplete(
             self.address_search_input, self.gmaps, debounce_delay=500
         )
-        completer.activated.connect(self._load_address)
+        self.address_completer.activated.connect(self._load_address)
 
     def _load_address(self, selected_address: Optional[str] = None):
         """Parse selected address and populate address fields."""
@@ -153,10 +158,16 @@ class ShippingTab(QWidget):
             QMessageBox.critical(self, "Error", "Google Maps not configured.")
             return
 
+        selected_prediction: Optional[AutocompletePrediction] = None
+        if selected_address and self.address_completer:
+            selected_prediction = self.address_completer.get_prediction_for_text(
+                selected_address
+            )
+
         self._set_status(f"Parsing address: {search_query}...", "info")
 
         try:
-            address_parts = self.address_parser(search_query)
+            address_parts = self.address_parser(selected_prediction or search_query)
             if not address_parts:
                 self._set_status("Could not parse address", "error")
                 QMessageBox.warning(
@@ -168,8 +179,7 @@ class ShippingTab(QWidget):
                 return
 
             if self.address_form:
-                self.address_form.clear()
-                self.address_form.set_address(address_parts)
+                self.address_form.merge_address(address_parts)
 
             if self.address_search_input:
                 QTimer.singleShot(0, self.address_search_input.clear)
