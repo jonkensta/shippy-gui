@@ -179,8 +179,7 @@ class ShippingTab(QWidget):
                 return
 
             if self.address_form:
-                self.address_form.clear()
-                self.address_form.set_address(address_parts)
+                self.address_form.merge_address(address_parts)
 
             if self.address_search_input:
                 QTimer.singleShot(0, self.address_search_input.clear)
