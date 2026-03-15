@@ -73,6 +73,22 @@ class ShipmentControlsTests(unittest.TestCase):
 
     @patch("shippy_gui.widgets.shipment_controls.get_default_printer")
     @patch("shippy_gui.widgets.shipment_controls.get_available_printers")
+    def test_set_enabled_true_does_not_reenable_create_when_no_printers(
+        self, mock_get_available_printers, mock_get_default_printer
+    ):
+        mock_get_available_printers.return_value = []
+        mock_get_default_printer.return_value = None
+
+        controls = ShipmentControls()
+        controls.set_enabled(False)
+        controls.set_enabled(True)
+
+        self.assertFalse(controls.create_button.isEnabled())
+        self.assertFalse(controls.printer_combo.isEnabled())
+        self.assertTrue(controls.refresh_button.isEnabled())
+
+    @patch("shippy_gui.widgets.shipment_controls.get_default_printer")
+    @patch("shippy_gui.widgets.shipment_controls.get_available_printers")
     def test_tooltips_explain_refresh_and_filtering(
         self, mock_get_available_printers, mock_get_default_printer
     ):

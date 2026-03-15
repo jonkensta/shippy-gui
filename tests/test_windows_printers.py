@@ -110,6 +110,24 @@ class WindowsPrinterBackendTests(unittest.TestCase):
         with patch.dict(sys.modules, {"wmi": fake_wmi_module}):
             self.assertEqual(self.backend.get_available_printers(), [])
 
+    def test_get_present_usb_printer_ids_excludes_config_manager_error_devices(self):
+        fake_wmi_module = types.SimpleNamespace(
+            WMI=lambda: FakeWMIConnection(
+                [
+                    FakePnPEntity(
+                        r"USB\VID_20D1&PID_7008\5&3A2D8B1E&0&1",
+                        error_code=45,
+                    ),
+                    FakePnPEntity(r"USB\VID_9999&PID_0001\5&3A2D8B1E&0&2"),
+                ]
+            )
+        )
+
+        with patch.dict(sys.modules, {"wmi": fake_wmi_module}):
+            self.assertEqual(
+                self.backend._get_present_usb_printer_ids(), {"9999:0001".upper()}
+            )
+
     @patch.object(WindowsPrinterBackend, "_get_installed_printers")
     def test_get_available_printers_returns_empty_and_logs_warning_on_wmi_failure(
         self, mock_get_installed_printers

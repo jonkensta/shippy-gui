@@ -175,6 +175,8 @@ class WindowsPrinterBackend(PrinterBackend):
                 continue
 
             status = (getattr(entity, "Status", "") or "").lower()
+            # Keep degraded printers visible so volunteers can still pick a connected
+            # device that may only need paper or another local intervention.
             if status and status not in {"ok", "degraded"}:
                 continue
 
@@ -204,6 +206,7 @@ class WindowsPrinterBackend(PrinterBackend):
     def _printer_name_matches_usb_id(self, printer_name: str, usb_id: str) -> bool:
         """Return True when printer name ends with the expected VID:PID suffix."""
         normalized_printer_name = printer_name.rstrip().upper()
+        # Accept raw or pre-normalized VID:PID input.
         normalized_usb_id = self._normalize_identifier(usb_id)
         if not normalized_printer_name.endswith(normalized_usb_id):
             return False
@@ -212,4 +215,5 @@ class WindowsPrinterBackend(PrinterBackend):
         if boundary_index == 0:
             return True
 
+        # Only whitespace and underscore are accepted suffix separators by design.
         return normalized_printer_name[boundary_index - 1] in {" ", "\t", "_"}
