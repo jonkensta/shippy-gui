@@ -4,11 +4,15 @@
 
 This plan covers the five highest-value refactors for improving maintainability without changing the product scope:
 
-1. split `ShippingTab` into coordinator-style components
+1. split Google transport from address-component parsing logic
 2. move shipment workflow logic out of `ShipmentWorker.run()` into a testable service layer
-3. replace string-only printer handling with a richer printer model
-4. consolidate startup/config bootstrap responsibilities
-5. split Google transport from address-component parsing logic
+3. consolidate startup/config bootstrap responsibilities
+4. replace string-only printer handling with a richer printer model
+5. split `ShippingTab` into coordinator-style components
+
+It also includes one adjacent bug fix that should be folded into the refactor sequence because it is directly tied to configuration ownership:
+
+6. reload `ShippingTab` API clients after settings are saved so updated API keys take effect without restarting
 
 The goal is to reduce widget complexity, isolate business logic from Qt plumbing, and make future changes safer to test and review.
 
@@ -22,7 +26,7 @@ The goal is to reduce widget complexity, isolate business logic from Qt plumbing
 
 ## Target End State
 
-After all five items are complete:
+After all five items and the config reload fix are complete:
 
 - `ShippingTab` is a small UI composition layer rather than the primary owner of all lookup/shipping logic.
 - shipment creation/refund/print orchestration is executable and testable outside a `QThread`
@@ -30,7 +34,7 @@ After all five items are complete:
 - startup/config bootstrap logic has one clear owner
 - address lookup transport and address parsing are separately testable components
 
-## Priority 1: Split `ShippingTab`
+## Priority 5: Split `ShippingTab`
 
 ### Problem
 
@@ -39,7 +43,7 @@ After all five items are complete:
 - API client initialization
 - address lookup orchestration
 - shipping workflow initiation
-- refund handling
+- refund-related UI handling
 - status message presentation
 - worker signal wiring
 
@@ -56,16 +60,16 @@ Create the following collaborators:
 - `ShippingTabPresenter` or `ShippingTabState`
   - owns status text / status type updates
   - centralizes status-setting rules
-- `AddressLookupController`
+- `AddressLookupCoordinator`
   - owns autocomplete hookup
   - resolves selected prediction
   - invokes address lookup service
   - populates `AddressForm`
   - reports parse warnings and failures
-- `ShipmentFlowController`
+- `ShipmentFlowCoordinator`
   - validates form + shipment controls
   - creates and wires the worker
-  - handles success/error/refund UI transitions
+  - handles success/error UI transitions and presents refund outcomes returned by the workflow layer
 
 `ShippingTab` should keep only:
 
@@ -85,7 +89,8 @@ Create the following collaborators:
 
 - `ShippingTab` becomes materially smaller and easier to scan
 - behavior remains unchanged
-- controller logic is testable without constructing the full tab where practical
+- non-Qt decision logic used by the coordinators is extracted into helpers/services that are testable without Qt
+- the coordinators themselves may still depend on Qt widgets such as `AddressForm`, `QLineEdit`, and `ShipmentControls`, and that is acceptable
 
 ## Priority 2: Move shipment workflow out of `ShipmentWorker.run()`
 
@@ -110,13 +115,11 @@ Create a pure workflow service, then keep the worker as a Qt wrapper.
 
 ### Proposed design
 
-Add a new service such as `ShipmentWorkflow` that exposes a method like:
-
-- `execute(...) -> ShipmentWorkflowResult`
-
-Or, if event granularity is preferred:
+Add a new service such as `ShipmentWorkflow` that exposes a callback-based method:
 
 - `execute(..., on_progress=...) -> ShipmentWorkflowResult`
+
+The callback form is preferred so the workflow remains pure Python while the worker continues to own Qt signal emission.
 
 Suggested result model:
 
@@ -125,7 +128,6 @@ Suggested result model:
   - `message`
   - `shipment`
   - `image`
-  - `needs_dialog_print`
   - `refund_requested`
 
 Suggested supporting enums/models:
@@ -134,6 +136,11 @@ Suggested supporting enums/models:
 - `ShipmentWorkflowWarning`
 - `ShipmentWorkflowError`
 
+### Ownership split
+
+- `ShipmentWorkflow` owns shipment business policy, including refund-on-failure decisions and EasyPost interactions.
+- `ShipmentFlowCoordinator` owns only the UI response to workflow outcomes.
+
 ### Worker role after refactor
 
 `ShipmentWorker` should:
@@ -141,6 +148,7 @@ Suggested supporting enums/models:
 - accept workflow dependencies and input models
 - call the workflow service inside `run()`
 - translate workflow results into Qt signals
+- preserve the existing `label_ready(image, printer_name, shipment)` signal contract exactly
 - no longer own detailed shipping business rules
 
 ### Implementation sequence
@@ -156,7 +164,7 @@ Suggested supporting enums/models:
 - `ShipmentWorker.run()` becomes a thin adapter
 - refund and error policy are preserved exactly
 
-## Priority 3: Introduce a richer printer model
+## Priority 4: Introduce a richer printer model
 
 ### Problem
 
@@ -179,13 +187,13 @@ Add `PrinterInfo` in a stable core/printing model module with fields such as:
 
 - `system_name: str`
 - `display_name: str`
-- `is_available: bool`
 - `is_default: bool = False`
-- `transport: str | None = None`
+- `transport: PrinterTransport | None = None`
 - `usb_id: str | None = None`
-- `match_reason: str | None = None`
 
-The UI can still display `display_name`, but internal code should not rely on naked strings where metadata matters.
+Add a `PrinterTransport` enum rather than using free-form strings.
+
+`PrinterInfo` is for discovery and selection only. The final OS print handoff should still pass `system_name: str` into the backend print call.
 
 ### Interface changes
 
@@ -205,8 +213,9 @@ To keep rollout safe, this can be staged:
 
 - printer-related code no longer depends on string parsing outside clearly defined backend matching helpers
 - dropdown selection logic uses `PrinterInfo` identity rather than raw string assumptions
+- no `is_available` or `match_reason` fields are added unless the discovery API is intentionally broadened beyond currently available printers
 
-## Priority 4: Consolidate startup/config bootstrap logic
+## Priority 3: Consolidate startup/config bootstrap logic
 
 ### Problem
 
@@ -221,40 +230,39 @@ The split is workable, but bootstrap policy and app-start behavior are not owned
 
 ### Refactor target
 
-Create one startup-facing configuration service that owns bootstrap policy.
+Consolidate startup/config bootstrap policy without adding an unnecessary application service class.
 
 ### Proposed design
 
-Add a service such as `ApplicationConfigService` or `AppBootstrapConfigService` that owns:
-
-- deciding when `config.ini` must be created
-- loading config
-- retrying via settings dialog when needed
-- resolving the active config path
-- deriving the logging path
-
-Suggested responsibilities split:
+Keep the top-level orchestration in `__main__.py`, but move lower-level bootstrap helpers into config modules with clearer ownership:
 
 - `core/config.py`
-  - low-level path resolution + file parsing helpers only
+  - path resolution
+  - file parsing
+  - example-config loading/bootstrap helpers
+  - logging-path resolution helpers if needed
 - `ConfigManager`
-  - save/load mechanics only, or fold into the new service
-- new bootstrap service
-  - startup policy and user-facing config recovery flow
+  - save/load mechanics only
+- `__main__.py`
+  - linear startup orchestration
+  - settings-dialog retry flow
+  - application creation and final launch
 
 ### Migration path
 
-1. move logging-path resolution out of `__main__.py`
-2. move config bootstrap/retry flow out of `__main__.py`
-3. leave `main()` as app creation + high-level bootstrap call
+1. move `_initialize_config()` and `_load_packaged_example_config()` into `core/config.py` or a closely related config helper module
+2. move logging-path resolution into a config helper so `__main__.py` no longer derives it manually
+3. keep `main()` as a readable linear startup script
+4. add a `ShippingTab.reload_config()` path and call it from `MainWindow._open_settings()` after a successful save so API clients are refreshed in-process
 
 ### Acceptance criteria
 
 - startup configuration flow has one obvious owner
-- `__main__.py` becomes shorter and policy-light
+- `__main__.py` remains readable and becomes shorter in its helper logic
 - settings/config save behavior remains unchanged
+- saving settings updates `gmaps`, `address_parser`, and `shipment_service` in the active `ShippingTab` without requiring an application restart
 
-## Priority 5: Split Google transport from address parsing
+## Priority 1: Split Google transport from address parsing
 
 ### Problem
 
@@ -288,21 +296,25 @@ Then `ShippingTab` or `AddressLookupController` composes them.
 - `GoogleAddressLookup.lookup(prediction_or_text) -> list[dict] | None`
 - `AddressComponentParser.parse(address_components) -> ParsedAddress`
 
+This keeps the current `str | AutocompletePrediction` union at the transport boundary; the win here is separation of concerns, not a narrower signature.
+
 ### Acceptance criteria
 
-- component parsing tests no longer need to instantiate a Google-backed class
+- component parsing is independently importable and testable as a pure class
+- existing parser tests can migrate incrementally rather than being rewritten wholesale
 - transport fallback logic is isolated from field-mapping logic
 - address parsing rules are easier to extend without touching network code
 
 ## Recommended Commit Order
 
-1. `refactor: extract shipment tab status and controller helpers`
+1. `refactor: split address lookup transport from parsing`
 2. `refactor: move shipment workflow into service layer`
-3. `refactor: introduce printer info model`
-4. `refactor: consolidate config bootstrap service`
-5. `refactor: split address lookup transport from parsing`
-6. `test: expand coverage for refactored services and controllers`
-7. `docs: update architecture notes if needed`
+3. `bugfix: reload shipping services after settings save`
+4. `refactor: consolidate config bootstrap helpers`
+5. `refactor: introduce printer info model`
+6. `refactor: extract shipment tab status and coordinator helpers`
+7. `test: expand coverage for refactored services and coordinators`
+8. `docs: update architecture notes if needed`
 
 ## Test Strategy
 
@@ -316,7 +328,8 @@ Then `ShippingTab` or `AddressLookupController` composes them.
 
 ### New tests to add during refactor
 
-- controller-level tests for address lookup and shipment initiation behavior
+- coordinator-level tests for address lookup and shipment initiation behavior where Qt widgets are still involved
+- pure helper/service tests for non-Qt decision logic extracted from those coordinators
 - pure workflow tests for shipment success/failure/refund branches
 - service tests for config bootstrap decisions
 - parser-only tests for address-component conversion
@@ -352,13 +365,16 @@ Then `ShippingTab` or `AddressLookupController` composes them.
 
 ## TODO
 
+- [ ] Split Google transport lookup from address-component parsing first.
+- [ ] Introduce a pure `ShipmentWorkflow` service with a progress callback and adapt `ShipmentWorker` into a thin Qt wrapper.
+- [ ] Define typed shipment workflow result/status models without UI-only fields such as `needs_dialog_print`.
+- [ ] Preserve the existing `label_ready(image, printer_name, shipment)` signal contract during the workflow refactor.
+- [ ] Move refund business policy into `ShipmentWorkflow` and keep only refund UI handling in the shipment coordinator layer.
+- [ ] Consolidate startup/config bootstrap helpers without introducing an unnecessary application service class.
+- [ ] Add a `ShippingTab.reload_config()` path and invoke it after successful settings saves.
+- [ ] Introduce `PrinterInfo` and `PrinterTransport`, but keep final OS printing string-based via `system_name`.
 - [ ] Extract status presentation out of `ShippingTab`.
-- [ ] Extract address lookup orchestration out of `ShippingTab`.
-- [ ] Extract shipment initiation/refund orchestration out of `ShippingTab`.
-- [ ] Introduce a pure `ShipmentWorkflow` service and adapt `ShipmentWorker` into a thin Qt wrapper.
-- [ ] Define typed shipment workflow result/status models.
-- [ ] Introduce `PrinterInfo` and stage the migration away from raw printer-name strings.
-- [ ] Consolidate startup/config bootstrap policy into a single application-facing service.
-- [ ] Split Google transport lookup from address-component parsing.
-- [ ] Add/expand tests for each newly extracted controller/service.
+- [ ] Extract address lookup orchestration into an `AddressLookupCoordinator`.
+- [ ] Extract shipment initiation/orchestration into a `ShipmentFlowCoordinator`.
+- [ ] Add/expand tests for each newly extracted service, helper, and coordinator.
 - [ ] Run full lint/type/test validation after each refactor stage.
