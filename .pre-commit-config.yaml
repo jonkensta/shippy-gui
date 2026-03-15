@@ -16,3 +16,8 @@ repos:
         entry: uv run black --check src
         language: system
         pass_filenames: false
+      - id: unittest
+        name: unittest (uv)
+        entry: env QT_QPA_PLATFORM=offscreen uv run python -m unittest discover -s tests
+        language: system
+        pass_filenames: false
