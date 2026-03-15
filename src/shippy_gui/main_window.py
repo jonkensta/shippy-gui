@@ -68,7 +68,6 @@ class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
         dialog = SettingsDialog(self.config_path, self)
         if dialog.exec():
             # Config was saved successfully
-            self.status_bar.showMessage("Settings saved successfully", 3000)
             # Reapply font size from updated config
             self._apply_font_from_config()
             if self.shipping_tab.reload_config():

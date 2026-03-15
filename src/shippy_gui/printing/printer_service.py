@@ -8,6 +8,7 @@ from typing import Optional
 from PIL import Image
 
 from shippy_gui.printing.backends.base import PrinterBackend
+from shippy_gui.printing.backends.null import NullPrinterBackend
 from shippy_gui.printing.models import PrinterInfo, PrinterTransport
 
 logger = logging.getLogger(__name__)
@@ -105,27 +106,10 @@ class PrinterService:
         transport = PrinterTransport.USB if usb_id else None
         return PrinterInfo(
             system_name=printer_name,
-            display_name=printer_name,
             is_default=printer_name == default_printer,
             transport=transport,
             usb_id=usb_id,
         )
-
-
-class NullPrinterBackend(PrinterBackend):
-    """Null backend for unsupported platforms."""
-
-    def get_available_printers(self) -> list[str]:
-        """Return empty list."""
-        return []
-
-    def get_default_printer(self) -> Optional[str]:
-        """Return None."""
-        return None
-
-    def print_image(self, img: Image.Image, printer_name: str) -> None:
-        """Raise error for unsupported platform."""
-        raise RuntimeError(f"Printing not supported on {platform.system()}")
 
 
 # Module-level singleton for convenience

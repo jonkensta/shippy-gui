@@ -1,6 +1,5 @@
 """Worker thread for creating and printing shipping labels."""
 
-import os
 from typing import Optional
 
 from PySide6.QtCore import QThread, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
@@ -64,11 +63,7 @@ class ShipmentWorker(
                 from_address=self.from_address,
                 to_address=self.to_address,
                 weight_lbs=self.weight_lbs,
-                logo_path=(
-                    self.logo_path
-                    if self.logo_path and os.path.exists(self.logo_path)
-                    else None
-                ),
+                logo_path=self.logo_path,
             ),
             on_progress=self.progress.emit,
             on_warning=self.warning.emit,

@@ -92,7 +92,7 @@ class ShipmentControls(QWidget):
 
         self._has_printers = True
         for printer in printers:
-            self.printer_combo.addItem(printer.display_name, printer)
+            self.printer_combo.addItem(printer.system_name, printer)
 
         printer_names = [printer.system_name for printer in printers]
 

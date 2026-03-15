@@ -22,9 +22,8 @@ class ShipmentControlsTests(unittest.TestCase):
     ):
         mock_get_available_printers.side_effect = [
             [
-                PrinterInfo("Alpha 20d1:7008", "Alpha 20d1:7008"),
+                PrinterInfo("Alpha 20d1:7008"),
                 PrinterInfo(
-                    "Beta 9999:0001",
                     "Beta 9999:0001",
                     is_default=True,
                     transport=PrinterTransport.USB,
@@ -32,8 +31,8 @@ class ShipmentControlsTests(unittest.TestCase):
                 ),
             ],
             [
-                PrinterInfo("Alpha 20d1:7008", "Alpha 20d1:7008"),
-                PrinterInfo("Gamma 7777:3333", "Gamma 7777:3333"),
+                PrinterInfo("Alpha 20d1:7008"),
+                PrinterInfo("Gamma 7777:3333"),
             ],
         ]
 
@@ -49,12 +48,12 @@ class ShipmentControlsTests(unittest.TestCase):
         self, mock_get_available_printers
     ):
         mock_get_available_printers.side_effect = [
-            [PrinterInfo("Alpha 20d1:7008", "Alpha 20d1:7008", is_default=True)],
+            [PrinterInfo("Alpha 20d1:7008", is_default=True)],
             [
-                PrinterInfo("Beta 9999:0001", "Beta 9999:0001", is_default=True),
-                PrinterInfo("Gamma 7777:3333", "Gamma 7777:3333"),
+                PrinterInfo("Beta 9999:0001", is_default=True),
+                PrinterInfo("Gamma 7777:3333"),
             ],
-            [PrinterInfo("Gamma 7777:3333", "Gamma 7777:3333")],
+            [PrinterInfo("Gamma 7777:3333")],
         ]
 
         controls = ShipmentControls()
@@ -93,9 +92,7 @@ class ShipmentControlsTests(unittest.TestCase):
 
     @patch("shippy_gui.widgets.shipment_controls.get_available_printers")
     def test_tooltips_explain_refresh_and_filtering(self, mock_get_available_printers):
-        mock_get_available_printers.return_value = [
-            PrinterInfo("Alpha 20d1:7008", "Alpha 20d1:7008")
-        ]
+        mock_get_available_printers.return_value = [PrinterInfo("Alpha 20d1:7008")]
 
         controls = ShipmentControls()
 

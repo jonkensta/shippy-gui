@@ -16,7 +16,6 @@ class PrinterInfo:
     """Printer metadata used for discovery and UI selection."""
 
     system_name: str
-    display_name: str
     is_default: bool = False
     transport: Optional[PrinterTransport] = None
     usb_id: Optional[str] = None
