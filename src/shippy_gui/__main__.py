@@ -7,8 +7,11 @@ import sys
 from PySide6.QtWidgets import QApplication  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from pydantic import ValidationError
 
-from shippy_gui.core.config import load_config
-from shippy_gui.core.constants import DEFAULT_LOG_FILENAME
+from shippy_gui.core.config import (
+    initialize_config_file,
+    load_config,
+    resolve_log_path,
+)
 from shippy_gui.core.logging import configure_logging
 from shippy_gui.core.font import apply_font_size
 from shippy_gui.main_window import MainWindow
@@ -40,7 +43,7 @@ def main():
 def _load_required_config(config_path: str):
     """Load config.ini or exit if missing/invalid."""
     if not os.path.exists(config_path):
-        _initialize_config(config_path)
+        initialize_config_file(config_path)
         _show_config_error(
             "A new config.ini was created in this folder.\n\n"
             "Please fill in your API keys and return address."
@@ -61,7 +64,7 @@ def _load_required_config(config_path: str):
         return _reload_config_or_exit(config_path)
     except Exception as e:  # pylint: disable=broad-exception-caught
         _show_config_error(
-            f"Failed to read config file:\n\n{e}\n\nThe application will exit.",
+            f"Failed to read config file:\n\n{e}\n\nThe application will exit."
         )
         sys.exit(1)
 
@@ -97,49 +100,9 @@ def _reload_config_or_exit(config_path: str):
         sys.exit(1)
 
 
-def _initialize_config(config_path: str) -> None:
-    """Create a starter config.ini in the working directory."""
-    contents = _load_packaged_example_config()
-    if not contents:
-        raise RuntimeError(
-            "Unable to load packaged config.example.ini. Please reinstall shippy-gui."
-        )
-
-    with open(config_path, "w", encoding="utf-8") as dest:
-        dest.write(contents)
-
-
-def _load_packaged_example_config() -> str:
-    """Load the packaged config.example.ini contents."""
-    try:
-        from importlib import resources  # pylint: disable=import-outside-toplevel
-
-        with (
-            resources.files("shippy_gui")
-            .joinpath("config.example.ini")
-            .open("r", encoding="utf-8") as handle
-        ):
-            return handle.read()
-    except Exception:  # pylint: disable=broad-exception-caught
-        return ""
-
-
 def _configure_app_logging(config_path: str, config) -> None:
     """Configure logging using config settings."""
-    config_dir = os.path.dirname(config_path)
-    default_log_path = os.path.join(config_dir, DEFAULT_LOG_FILENAME)
-
-    log_path = default_log_path
-    try:
-        log_setting = config.get_log_file(DEFAULT_LOG_FILENAME)
-        if os.path.isabs(log_setting):
-            log_path = log_setting
-        else:
-            log_path = os.path.join(config_dir, log_setting or DEFAULT_LOG_FILENAME)
-    except Exception:  # pylint: disable=broad-exception-caught
-        log_path = default_log_path
-
-    configure_logging(log_path)
+    configure_logging(resolve_log_path(config_path, config))
     logging.getLogger(__name__).info("Shippy GUI started")
 
 

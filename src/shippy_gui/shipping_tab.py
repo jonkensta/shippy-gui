@@ -21,9 +21,9 @@ from PySide6.QtCore import Qt, QTimer  # type: ignore[import-untyped] # pylint: 
 from shippy_gui.printing.printer_manager import (
     print_image_with_dialog,
 )
+from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.config_manager import ConfigManager
 from shippy_gui.core.constants import STATUS_COLORS
-from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.models import AutocompletePrediction
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.widgets.autocomplete import (
@@ -88,6 +88,31 @@ class ShippingTab(QWidget):
 
         # Initialize Shipment Service
         self.shipment_service = ShipmentService(config.easypost.apikey)
+
+    def reload_config(self) -> bool:
+        """Reload runtime configuration and recreate dependent services."""
+        previous_default_weight = (
+            self.config.get_default_weight() if self.config else None
+        )
+        if not self._config_manager.load(parent_widget=self):
+            return False
+
+        config = self._config_manager.config
+        if config is None:
+            return False
+
+        self.gmaps = googlemaps.Client(key=config.googlemaps.apikey)
+        self.address_parser = AddressParser(self.gmaps)
+        self.shipment_service = ShipmentService(config.easypost.apikey)
+
+        if (
+            self.shipment_controls
+            and previous_default_weight is not None
+            and self.shipment_controls.weight_lbs == previous_default_weight
+        ):
+            self.shipment_controls.weight_input.setValue(config.get_default_weight())
+
+        return True
 
     def _load_logo(self):
         """Load logo image if available."""
