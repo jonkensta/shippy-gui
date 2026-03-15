@@ -77,6 +77,11 @@ Pre-commit hooks run on every commit:
 
 Format code before committing: `uv run black src`
 
+Run tests (requires offscreen Qt platform for headless/hook contexts):
+```bash
+QT_QPA_PLATFORM=offscreen uv run python -m unittest discover -s tests
+```
+
 ## Git Workflow
 
 - All work is done on **feature branches** branched from `main`.
