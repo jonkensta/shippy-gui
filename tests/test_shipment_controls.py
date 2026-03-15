@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 
+from shippy_gui.printing.models import PrinterInfo, PrinterTransport
 from shippy_gui.widgets.shipment_controls import ShipmentControls
 
 
@@ -15,16 +16,26 @@ class ShipmentControlsTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    @patch("shippy_gui.widgets.shipment_controls.get_default_printer")
     @patch("shippy_gui.widgets.shipment_controls.get_available_printers")
     def test_refresh_preserves_current_selection_when_still_available(
-        self, mock_get_available_printers, mock_get_default_printer
+        self, mock_get_available_printers
     ):
         mock_get_available_printers.side_effect = [
-            ["Alpha 20d1:7008", "Beta 9999:0001"],
-            ["Alpha 20d1:7008", "Gamma 7777:3333"],
+            [
+                PrinterInfo("Alpha 20d1:7008", "Alpha 20d1:7008"),
+                PrinterInfo(
+                    "Beta 9999:0001",
+                    "Beta 9999:0001",
+                    is_default=True,
+                    transport=PrinterTransport.USB,
+                    usb_id="9999:0001",
+                ),
+            ],
+            [
+                PrinterInfo("Alpha 20d1:7008", "Alpha 20d1:7008"),
+                PrinterInfo("Gamma 7777:3333", "Gamma 7777:3333"),
+            ],
         ]
-        mock_get_default_printer.return_value = "Beta 9999:0001"
 
         controls = ShipmentControls()
         controls.printer_combo.setCurrentText("Alpha 20d1:7008")
@@ -33,20 +44,17 @@ class ShipmentControlsTests(unittest.TestCase):
 
         self.assertEqual(controls.printer_name, "Alpha 20d1:7008")
 
-    @patch("shippy_gui.widgets.shipment_controls.get_default_printer")
     @patch("shippy_gui.widgets.shipment_controls.get_available_printers")
     def test_refresh_falls_back_to_default_then_first_available(
-        self, mock_get_available_printers, mock_get_default_printer
+        self, mock_get_available_printers
     ):
         mock_get_available_printers.side_effect = [
-            ["Alpha 20d1:7008"],
-            ["Beta 9999:0001", "Gamma 7777:3333"],
-            ["Gamma 7777:3333"],
-        ]
-        mock_get_default_printer.side_effect = [
-            "Alpha 20d1:7008",
-            "Beta 9999:0001",
-            None,
+            [PrinterInfo("Alpha 20d1:7008", "Alpha 20d1:7008", is_default=True)],
+            [
+                PrinterInfo("Beta 9999:0001", "Beta 9999:0001", is_default=True),
+                PrinterInfo("Gamma 7777:3333", "Gamma 7777:3333"),
+            ],
+            [PrinterInfo("Gamma 7777:3333", "Gamma 7777:3333")],
         ]
 
         controls = ShipmentControls()
@@ -56,13 +64,11 @@ class ShipmentControlsTests(unittest.TestCase):
         controls.refresh_printers()
         self.assertEqual(controls.printer_name, "Gamma 7777:3333")
 
-    @patch("shippy_gui.widgets.shipment_controls.get_default_printer")
     @patch("shippy_gui.widgets.shipment_controls.get_available_printers")
     def test_refresh_shows_no_printers_and_disables_create_when_empty(
-        self, mock_get_available_printers, mock_get_default_printer
+        self, mock_get_available_printers
     ):
         mock_get_available_printers.return_value = []
-        mock_get_default_printer.return_value = None
 
         controls = ShipmentControls()
 
@@ -71,13 +77,11 @@ class ShipmentControlsTests(unittest.TestCase):
         )
         self.assertFalse(controls.create_button.isEnabled())
 
-    @patch("shippy_gui.widgets.shipment_controls.get_default_printer")
     @patch("shippy_gui.widgets.shipment_controls.get_available_printers")
     def test_set_enabled_true_does_not_reenable_create_when_no_printers(
-        self, mock_get_available_printers, mock_get_default_printer
+        self, mock_get_available_printers
     ):
         mock_get_available_printers.return_value = []
-        mock_get_default_printer.return_value = None
 
         controls = ShipmentControls()
         controls.set_enabled(False)
@@ -87,13 +91,11 @@ class ShipmentControlsTests(unittest.TestCase):
         self.assertFalse(controls.printer_combo.isEnabled())
         self.assertTrue(controls.refresh_button.isEnabled())
 
-    @patch("shippy_gui.widgets.shipment_controls.get_default_printer")
     @patch("shippy_gui.widgets.shipment_controls.get_available_printers")
-    def test_tooltips_explain_refresh_and_filtering(
-        self, mock_get_available_printers, mock_get_default_printer
-    ):
-        mock_get_available_printers.return_value = ["Alpha 20d1:7008"]
-        mock_get_default_printer.return_value = None
+    def test_tooltips_explain_refresh_and_filtering(self, mock_get_available_printers):
+        mock_get_available_printers.return_value = [
+            PrinterInfo("Alpha 20d1:7008", "Alpha 20d1:7008")
+        ]
 
         controls = ShipmentControls()
 
@@ -101,6 +103,7 @@ class ShipmentControlsTests(unittest.TestCase):
         self.assertIn("click Refresh", controls.printer_combo.toolTip())
         self.assertIn("scan again", controls.refresh_button.toolTip())
         self.assertIn("do not need to restart", controls.refresh_button.toolTip())
+        self.assertEqual(controls.selected_printer.system_name, "Alpha 20d1:7008")
 
 
 if __name__ == "__main__":
