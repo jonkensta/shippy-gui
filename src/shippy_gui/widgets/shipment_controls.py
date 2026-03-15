@@ -4,6 +4,7 @@ from typing import Optional
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QWidget,
     QFormLayout,
+    QHBoxLayout,
     QSpinBox,
     QComboBox,
     QPushButton,
@@ -21,14 +22,28 @@ class ShipmentControls(QWidget):
     """Widget for weight and printer selection."""
 
     NO_PRINTERS_LABEL = "No printers found"
+    PRINTER_TOOLTIP = (
+        "Choose the label printer you want to use.\n"
+        "This list only shows USB label printers that are plugged in and turned on.\n"
+        "The printer name must end with the USB ID, such as 20d1:7008.\n"
+        "If you just plugged in or turned on a printer, click Refresh.\n"
+        "If no printers appear, check that the printer is plugged in, turned on, and ready."
+    )
+    REFRESH_TOOLTIP = (
+        "Click Refresh to scan again for USB label printers.\n"
+        "Use this after you plug in a printer or turn one on.\n"
+        "You do not need to restart the program."
+    )
 
     create_requested = Signal()
 
     def __init__(self, default_weight: int = DEFAULT_WEIGHT_LBS, parent=None):
         super().__init__(parent)
         self._default_weight = default_weight
+        self._controls_enabled = True
+        self._has_printers = False
         self._init_ui()
-        self._load_printers()
+        self.refresh_printers()
 
     def _init_ui(self):
         layout = QFormLayout()
@@ -44,10 +59,14 @@ class ShipmentControls(QWidget):
         layout.addRow("Weight:", self.weight_input)
 
         self.printer_combo = QComboBox()
-        self.printer_combo.setToolTip(
-            "Select printer for shipping label (4x6 label size)"
-        )
-        layout.addRow("Printer:", self.printer_combo)
+        self.printer_combo.setToolTip(self.PRINTER_TOOLTIP)
+        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button.setToolTip(self.REFRESH_TOOLTIP)
+        self.refresh_button.clicked.connect(self.refresh_printers)
+        printer_row = QHBoxLayout()
+        printer_row.addWidget(self.printer_combo, 1)
+        printer_row.addWidget(self.refresh_button)
+        layout.addRow("Printer:", printer_row)
 
         self.create_button = QPushButton("Create Label")
         self.create_button.setDefault(True)
@@ -59,22 +78,34 @@ class ShipmentControls(QWidget):
         self.create_button.clicked.connect(self.create_requested.emit)
         layout.addRow(self.create_button)
 
-    def _load_printers(self):
-        """Load available printers into the combo box."""
+    def refresh_printers(self):
+        """Refresh the printer list while preserving selection when possible."""
         printers = get_available_printers()
+        selected_printer = self.printer_combo.currentText()
+        self.printer_combo.clear()
 
         if not printers:
+            self._has_printers = False
             self.printer_combo.addItem(self.NO_PRINTERS_LABEL)
-            self.create_button.setEnabled(False)
+            self._update_enabled_state()
             return
 
+        self._has_printers = True
         self.printer_combo.addItems(printers)
 
-        # Select default printer if available
+        if selected_printer and selected_printer in printers:
+            index = printers.index(selected_printer)
+            self.printer_combo.setCurrentIndex(index)
+            self._update_enabled_state()
+            return
+
         default_printer = get_default_printer()
         if default_printer and default_printer in printers:
             index = printers.index(default_printer)
             self.printer_combo.setCurrentIndex(index)
+        else:
+            self.printer_combo.setCurrentIndex(0)
+        self._update_enabled_state()
 
     @property
     def weight_lbs(self) -> int:
@@ -88,9 +119,15 @@ class ShipmentControls(QWidget):
 
     def set_enabled(self, enabled: bool):
         """Enable or disable controls."""
-        self.weight_input.setEnabled(enabled)
-        self.printer_combo.setEnabled(enabled)
-        self.create_button.setEnabled(enabled)
+        self._controls_enabled = enabled
+        self._update_enabled_state()
+
+    def _update_enabled_state(self):
+        """Apply enabled state while respecting printer availability."""
+        self.weight_input.setEnabled(self._controls_enabled)
+        self.printer_combo.setEnabled(self._controls_enabled and self._has_printers)
+        self.refresh_button.setEnabled(self._controls_enabled)
+        self.create_button.setEnabled(self._controls_enabled and self._has_printers)
 
     def reset(self):
         """Reset controls after successful shipment.

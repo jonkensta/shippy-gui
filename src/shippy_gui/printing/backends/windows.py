@@ -1,6 +1,7 @@
 """Windows printer backend using win32print."""
 
 import logging
+import re
 import subprocess
 import tempfile
 from typing import Optional
@@ -17,28 +18,38 @@ from shippy_gui.core.constants import (
 from shippy_gui.printing.backends.base import PrinterBackend
 
 logger = logging.getLogger(__name__)
+VID_PID_PATTERN = re.compile(r"VID_([0-9A-Fa-f]{4}).*PID_([0-9A-Fa-f]{4})")
 
 
 class WindowsPrinterBackend(PrinterBackend):
     """Windows printer backend using win32print/win32ui."""
 
     def get_available_printers(self) -> list[str]:
-        """Get available printers using win32print."""
-        printers = []
+        """Get strict-match USB label printers currently present on Windows."""
+        printers = self._get_installed_printers()
+        if not printers:
+            return []
 
         try:
-            import win32print  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
-
-            printer_info = win32print.EnumPrinters(
-                win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
-            )
-            printers = [printer[2] for printer in printer_info]
+            usb_ids = self._get_present_usb_printer_ids()
         except ImportError:
-            logger.debug("win32print not available")
+            logger.warning("WMI not available for Windows USB printer filtering")
+            return []
         except Exception:  # pylint: disable=broad-exception-caught
-            logger.debug("Windows printer enumeration failed", exc_info=True)
+            logger.warning(
+                "Windows USB printer filtering failed during device enumeration",
+                exc_info=True,
+            )
+            return []
 
-        return printers
+        return [
+            printer_name
+            for printer_name in printers
+            if any(
+                self._printer_name_matches_usb_id(printer_name, usb_id)
+                for usb_id in usb_ids
+            )
+        ]
 
     def get_default_printer(self) -> Optional[str]:
         """Get default printer using win32print."""
@@ -132,3 +143,77 @@ class WindowsPrinterBackend(PrinterBackend):
                 import os  # pylint: disable=import-outside-toplevel
 
                 os.remove(tmpfile.name)
+
+    @staticmethod
+    def _get_installed_printers() -> list[str]:
+        """Enumerate installed Windows printers from the spooler."""
+        try:
+            import win32print  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
+
+            printer_info = win32print.EnumPrinters(
+                win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+            )
+            return [printer[2] for printer in printer_info]
+        except ImportError:
+            logger.debug("win32print not available")
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.debug("Windows printer enumeration failed", exc_info=True)
+        return []
+
+    def _get_present_usb_printer_ids(self) -> set[str]:
+        """Return normalized VID:PID values for present USB printer devices."""
+        import wmi  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
+
+        conn = wmi.WMI()
+        usb_ids: set[str] = set()
+        for entity in conn.Win32_PnPEntity():
+            if getattr(entity, "PNPClass", None) != "Printer":
+                continue
+
+            device_id = getattr(entity, "DeviceID", "") or ""
+            if not device_id.startswith("USB"):
+                continue
+
+            status = (getattr(entity, "Status", "") or "").lower()
+            # Keep degraded printers visible so volunteers can still pick a connected
+            # device that may only need paper or another local intervention.
+            if status and status not in {"ok", "degraded"}:
+                continue
+
+            error_code = getattr(entity, "ConfigManagerErrorCode", 0)
+            if error_code not in (None, 0):
+                continue
+
+            usb_id = self._extract_vid_pid(device_id)
+            if usb_id:
+                usb_ids.add(self._normalize_identifier(usb_id))
+        return usb_ids
+
+    @staticmethod
+    def _extract_vid_pid(device_id: str) -> Optional[str]:
+        """Extract `vid:pid` from a Windows USB PnP device identifier."""
+        match = VID_PID_PATTERN.search(device_id)
+        if not match:
+            return None
+        vendor_id, product_id = match.groups()
+        return f"{vendor_id.lower()}:{product_id.lower()}"
+
+    @staticmethod
+    def _normalize_identifier(value: str) -> str:
+        """Normalize a VID:PID identifier for matching."""
+        return value.strip().upper()
+
+    def _printer_name_matches_usb_id(self, printer_name: str, usb_id: str) -> bool:
+        """Return True when printer name ends with the expected VID:PID suffix."""
+        normalized_printer_name = printer_name.rstrip().upper()
+        # Accept raw or pre-normalized VID:PID input.
+        normalized_usb_id = self._normalize_identifier(usb_id)
+        if not normalized_printer_name.endswith(normalized_usb_id):
+            return False
+
+        boundary_index = len(normalized_printer_name) - len(normalized_usb_id)
+        if boundary_index == 0:
+            return True
+
+        # Only whitespace and underscore are accepted suffix separators by design.
+        return normalized_printer_name[boundary_index - 1] in {" ", "\t", "_"}
