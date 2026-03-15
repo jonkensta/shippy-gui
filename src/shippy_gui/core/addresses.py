@@ -26,11 +26,13 @@ class AddressParser:
         premise = self._get_component_value(components_by_type, "premise")
 
         street1 = self._build_street1(street_number, route, premise)
-        street2 = self._build_street2(components_by_type)
+        has_conventional_street = bool(street_number and route)
+        street2 = self._build_street2(components_by_type, has_conventional_street)
         city = self._first_component_value(
             components_by_type,
             [
                 ("locality", "long_name"),
+                # postal_town is mainly relevant outside the US but harmless as fallback.
                 ("postal_town", "long_name"),
                 ("sublocality_level_1", "long_name"),
             ],
@@ -141,17 +143,28 @@ class AddressParser:
         return premise
 
     def _build_street2(
-        self, components_by_type: dict[str, list[dict[str, Any]]]
+        self,
+        components_by_type: dict[str, list[dict[str, Any]]],
+        has_conventional_street: bool,
     ) -> Optional[str]:
         """Build street2 from the best available supplemental components."""
-        ordered_candidates = [
+        ordered_candidates: list[tuple[str, str]] = [
             ("subpremise", "long_name"),
             ("floor", "long_name"),
             ("room", "long_name"),
             ("post_box", "long_name"),
-            ("establishment", "long_name"),
-            ("point_of_interest", "long_name"),
         ]
+        has_explicit_supplemental = any(
+            self._get_component_value(components_by_type, component_type)
+            for component_type in ("subpremise", "floor", "room", "post_box")
+        )
+        if not has_conventional_street or has_explicit_supplemental:
+            ordered_candidates.extend(
+                [
+                    ("establishment", "long_name"),
+                    ("point_of_interest", "long_name"),
+                ]
+            )
         values: list[str] = []
         for component_type, field_name in ordered_candidates:
             value = self._get_component_value(

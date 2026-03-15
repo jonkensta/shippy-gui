@@ -3,8 +3,11 @@
 import unittest
 from unittest.mock import Mock
 
+from PySide6.QtWidgets import QApplication
+
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.models import AutocompletePrediction
+from shippy_gui.widgets.address_form import AddressForm
 
 
 class AddressParserComponentTests(unittest.TestCase):
@@ -32,6 +35,21 @@ class AddressParserComponentTests(unittest.TestCase):
         self.assertEqual(parsed.state, "TX")
         self.assertEqual(parsed.zipcode, "77340")
         self.assertEqual(parsed.country, "US")
+
+    def test_parse_standard_address_ignores_establishment_for_street2(self):
+        parsed = self.parser.parse_address_components(
+            [
+                {"long_name": "123", "types": ["street_number"]},
+                {"long_name": "Main St", "types": ["route"]},
+                {"long_name": "Corner Store", "types": ["establishment"]},
+                {"long_name": "Austin", "types": ["locality"]},
+                {"short_name": "TX", "types": ["administrative_area_level_1"]},
+                {"long_name": "78703", "types": ["postal_code"]},
+            ]
+        )
+
+        self.assertEqual(parsed.street1, "123 Main St")
+        self.assertIsNone(parsed.street2)
 
     def test_parse_facility_and_unit_components(self):
         parsed = self.parser.parse_address_components(
@@ -110,6 +128,52 @@ class AddressParserComponentTests(unittest.TestCase):
                 unittest.mock.call(address="PO Box 1, Austin, TX", region="us"),
             ],
         )
+
+    def test_returns_none_when_all_geocode_attempts_fail(self):
+        self.gmaps.geocode.side_effect = [[], []]
+
+        parsed = self.parser(
+            AutocompletePrediction(
+                description="PO Box 1, Austin, TX", place_id="abc123"
+            )
+        )
+
+        self.assertIsNone(parsed)
+
+
+class AddressFormTests(unittest.TestCase):
+    """Tests for non-destructive address form behavior."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.form = AddressForm()
+
+    def test_merge_address_preserves_existing_values(self):
+        self.form.name_input.setText("Jane Doe")
+        self.form.street2_input.setText("Unit 42")
+
+        self.form.merge_address({"street1": "123 Prison Rd", "city": "Huntsville"})
+
+        self.assertEqual(self.form.name_input.text(), "Jane Doe")
+        self.assertEqual(self.form.street2_input.text(), "Unit 42")
+        self.assertEqual(self.form.street1_input.text(), "123 Prison Rd")
+        self.assertEqual(self.form.city_input.text(), "Huntsville")
+
+    def test_merge_address_not_called_when_parser_returns_none(self):
+        parser = Mock(return_value=None)
+        self.form.name_input.setText("Jane Doe")
+        self.form.street2_input.setText("Unit 42")
+
+        parsed = parser("unparseable address")
+        if parsed:
+            self.form.merge_address(parsed)
+
+        parser.assert_called_once_with("unparseable address")
+        self.assertEqual(self.form.name_input.text(), "Jane Doe")
+        self.assertEqual(self.form.street2_input.text(), "Unit 42")
 
 
 if __name__ == "__main__":

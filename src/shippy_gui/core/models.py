@@ -95,6 +95,7 @@ class AutocompletePrediction(BaseModel):
 
     description: str
     place_id: Optional[str] = None
+    # Retained for future UI refinements even though the current flow only needs place_id.
     structured_formatting: Optional[dict[str, Any]] = None
     types: list[str] = []
 
