@@ -68,10 +68,15 @@ class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
         dialog = SettingsDialog(self.config_path, self)
         if dialog.exec():
             # Config was saved successfully
-            self.status_bar.showMessage("Settings saved successfully", 3000)
             # Reapply font size from updated config
             self._apply_font_from_config()
-            # Tabs can reload config if needed in future phases
+            if self.shipping_tab.reload_config():
+                self.status_bar.showMessage("Settings saved successfully", 3000)
+            else:
+                self.status_bar.showMessage(
+                    "Settings saved, but some services could not be reloaded",
+                    5000,
+                )
         else:
             # Dialog was cancelled
             self.status_bar.showMessage("Settings cancelled", 3000)

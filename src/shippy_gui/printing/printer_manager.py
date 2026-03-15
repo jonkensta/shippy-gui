@@ -13,16 +13,17 @@ from PySide6.QtGui import QPainter  # type: ignore[import-untyped] # pylint: dis
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
+from shippy_gui.printing.models import PrinterInfo
 from shippy_gui.printing.printer_service import get_printer_service
 
 logger = logging.getLogger(__name__)
 
 
-def get_available_printers() -> list[str]:
-    """Get list of available printers on the system.
+def get_available_printers() -> list[PrinterInfo]:
+    """Get available printers on the system.
 
     Returns:
-        List of printer names. Empty list if no printers found or on error.
+        List of discovered printers. Empty list if no printers found or on error.
     """
     return get_printer_service().get_available_printers()
 

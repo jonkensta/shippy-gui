@@ -12,9 +12,9 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 from PySide6.QtCore import Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.constants import WEIGHT_MIN_LBS, WEIGHT_MAX_LBS, DEFAULT_WEIGHT_LBS
+from shippy_gui.printing.models import PrinterInfo
 from shippy_gui.printing.printer_manager import (
     get_available_printers,
-    get_default_printer,
 )
 
 
@@ -81,7 +81,7 @@ class ShipmentControls(QWidget):
     def refresh_printers(self):
         """Refresh the printer list while preserving selection when possible."""
         printers = get_available_printers()
-        selected_printer = self.printer_combo.currentText()
+        selected_printer = self.printer_name
         self.printer_combo.clear()
 
         if not printers:
@@ -91,17 +91,23 @@ class ShipmentControls(QWidget):
             return
 
         self._has_printers = True
-        self.printer_combo.addItems(printers)
+        for printer in printers:
+            self.printer_combo.addItem(printer.system_name, printer)
 
-        if selected_printer and selected_printer in printers:
-            index = printers.index(selected_printer)
+        printer_names = [printer.system_name for printer in printers]
+
+        if selected_printer and selected_printer in printer_names:
+            index = printer_names.index(selected_printer)
             self.printer_combo.setCurrentIndex(index)
             self._update_enabled_state()
             return
 
-        default_printer = get_default_printer()
-        if default_printer and default_printer in printers:
-            index = printers.index(default_printer)
+        default_index = next(
+            (index for index, printer in enumerate(printers) if printer.is_default),
+            None,
+        )
+        if default_index is not None:
+            index = default_index
             self.printer_combo.setCurrentIndex(index)
         else:
             self.printer_combo.setCurrentIndex(0)
@@ -115,7 +121,16 @@ class ShipmentControls(QWidget):
     @property
     def printer_name(self) -> str:
         """Get selected printer name."""
-        return self.printer_combo.currentText()
+        printer = self.selected_printer
+        if printer is None:
+            return self.printer_combo.currentText()
+        return printer.system_name
+
+    @property
+    def selected_printer(self) -> Optional[PrinterInfo]:
+        """Get selected printer metadata."""
+        printer = self.printer_combo.currentData()
+        return printer if isinstance(printer, PrinterInfo) else None
 
     def set_enabled(self, enabled: bool):
         """Enable or disable controls."""

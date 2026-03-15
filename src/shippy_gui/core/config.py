@@ -1,13 +1,14 @@
 """Configuration loading utilities."""
 
-from dataclasses import dataclass
 import configparser
+from dataclasses import dataclass
+from importlib import resources
 import os
 from typing import Optional
 
 from pydantic import ValidationError
 
-from shippy_gui.core.constants import DEFAULT_FONT_SIZE
+from shippy_gui.core.constants import DEFAULT_FONT_SIZE, DEFAULT_LOG_FILENAME
 from shippy_gui.core.models import Config
 
 
@@ -67,3 +68,42 @@ def get_font_size_from_path(path: str) -> int:
         return load_config(path).get_font_size()
     except (ValidationError, configparser.Error, ValueError):
         return DEFAULT_FONT_SIZE
+
+
+def load_packaged_example_config() -> str:
+    """Load the packaged config.example.ini contents."""
+    try:
+        with (
+            resources.files("shippy_gui")
+            .joinpath("config.example.ini")
+            .open("r", encoding="utf-8") as handle
+        ):
+            return handle.read()
+    except Exception:  # pylint: disable=broad-exception-caught
+        return ""
+
+
+def initialize_config_file(config_path: str) -> None:
+    """Create a starter config.ini in the working directory."""
+    contents = load_packaged_example_config()
+    if not contents:
+        raise RuntimeError(
+            "Unable to load packaged config.example.ini. Please reinstall shippy-gui."
+        )
+
+    with open(config_path, "w", encoding="utf-8") as destination:
+        destination.write(contents)
+
+
+def resolve_log_path(config_path: str, config: Config) -> str:
+    """Resolve the configured log file path with a safe default."""
+    config_dir = os.path.dirname(config_path)
+    default_log_path = os.path.join(config_dir, DEFAULT_LOG_FILENAME)
+
+    try:
+        log_setting = config.get_log_file(DEFAULT_LOG_FILENAME)
+        if os.path.isabs(log_setting):
+            return log_setting
+        return os.path.join(config_dir, log_setting or DEFAULT_LOG_FILENAME)
+    except Exception:  # pylint: disable=broad-exception-caught
+        return default_log_path
