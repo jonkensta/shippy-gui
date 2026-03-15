@@ -1,7 +1,8 @@
-"""Address parsing with Google Maps."""
+"""Address lookup and parsing with Google Maps."""
 
 import logging
 from typing import Any, Optional
+
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
 
 from shippy_gui.core.models import AutocompletePrediction, ParsedAddress
@@ -9,15 +10,53 @@ from shippy_gui.core.models import AutocompletePrediction, ParsedAddress
 logger = logging.getLogger(__name__)
 
 
-class AddressParser:
-    """Address parser that uses Google Maps API."""
+class GoogleAddressLookup:  # pylint: disable=too-few-public-methods
+    """Resolve Google address data from autocomplete predictions or free text."""
 
     gmaps: googlemaps.Client
 
     def __init__(self, gmaps: googlemaps.Client):
         self.gmaps = gmaps
 
-    def parse_address_components(self, address_components) -> ParsedAddress:
+    def lookup(
+        self, selected_address: str | AutocompletePrediction
+    ) -> Optional[list[dict[str, Any]]]:
+        """Look up geocode results for the selected address input."""
+        if isinstance(selected_address, AutocompletePrediction):
+            return self._geocode_prediction(selected_address)
+        return self._geocode_text(selected_address)
+
+    def _geocode_prediction(
+        self, prediction: AutocompletePrediction
+    ) -> Optional[list[dict[str, Any]]]:
+        """Geocode an autocomplete selection, preferring its stable place_id."""
+        if prediction.place_id:
+            geocode = self._safe_geocode(place_id=prediction.place_id)
+            if geocode:
+                return geocode
+
+        return self._geocode_text(prediction.description)
+
+    def _geocode_text(self, address_string: str) -> Optional[list[dict[str, Any]]]:
+        """Geocode a free-form address string with the existing US bias."""
+        return self._safe_geocode(address=address_string, region="us")
+
+    def _safe_geocode(self, **kwargs) -> Optional[list[dict[str, Any]]]:
+        """Wrap geocoding calls and normalize transport/API failures."""
+        try:
+            return self.gmaps.geocode(**kwargs)
+        except (
+            googlemaps.exceptions.ApiError,
+            googlemaps.exceptions.Timeout,
+            googlemaps.exceptions.TransportError,
+        ):
+            return None
+
+
+class AddressComponentParser:  # pylint: disable=too-few-public-methods
+    """Parse Google address components into the app's address model."""
+
+    def parse(self, address_components: list[dict[str, Any]]) -> ParsedAddress:
         """Parse Google address components into the app's address model."""
         components_by_type = self._index_components(address_components)
 
@@ -53,48 +92,6 @@ class AddressParser:
             zipcode=zipcode,
             country=country,
         )
-
-    def __call__(
-        self, selected_address: str | AutocompletePrediction
-    ) -> Optional[ParsedAddress]:
-        """Parse an address string."""
-        if isinstance(selected_address, AutocompletePrediction):
-            geocode = self._geocode_prediction(selected_address)
-        else:
-            geocode = self._geocode_text(selected_address)
-
-        if not geocode:
-            return None
-
-        first_result = geocode[0]
-        address_components = first_result.get("address_components", [])
-        return self.parse_address_components(address_components)
-
-    def _geocode_prediction(
-        self, prediction: AutocompletePrediction
-    ) -> Optional[list[dict[str, Any]]]:
-        """Geocode an autocomplete selection, preferring its stable place_id."""
-        if prediction.place_id:
-            geocode = self._safe_geocode(place_id=prediction.place_id)
-            if geocode:
-                return geocode
-
-        return self._geocode_text(prediction.description)
-
-    def _geocode_text(self, address_string: str) -> Optional[list[dict[str, Any]]]:
-        """Geocode a free-form address string with the existing US bias."""
-        return self._safe_geocode(address=address_string, region="us")
-
-    def _safe_geocode(self, **kwargs) -> Optional[list[dict[str, Any]]]:
-        """Wrap geocoding calls and normalize transport/API failures."""
-        try:
-            return self.gmaps.geocode(**kwargs)
-        except (
-            googlemaps.exceptions.ApiError,
-            googlemaps.exceptions.Timeout,
-            googlemaps.exceptions.TransportError,
-        ):
-            return None
 
     @staticmethod
     def _index_components(
@@ -223,3 +220,27 @@ class AddressParser:
             logger.debug(
                 "Ignoring unmapped address component types: %s", unmapped_types
             )
+
+
+class AddressParser:
+    """Compatibility facade combining Google lookup and component parsing."""
+
+    def __init__(self, gmaps: googlemaps.Client):
+        self.lookup = GoogleAddressLookup(gmaps)
+        self.component_parser = AddressComponentParser()
+
+    def parse_address_components(self, address_components) -> ParsedAddress:
+        """Parse Google address components into the app's address model."""
+        return self.component_parser.parse(address_components)
+
+    def __call__(
+        self, selected_address: str | AutocompletePrediction
+    ) -> Optional[ParsedAddress]:
+        """Parse an address string or prediction into structured address fields."""
+        geocode = self.lookup.lookup(selected_address)
+        if not geocode:
+            return None
+
+        first_result = geocode[0]
+        address_components = first_result.get("address_components", [])
+        return self.component_parser.parse(address_components)

@@ -5,7 +5,11 @@ from unittest.mock import Mock
 
 from PySide6.QtWidgets import QApplication
 
-from shippy_gui.core.addresses import AddressParser
+from shippy_gui.core.addresses import (
+    AddressComponentParser,
+    AddressParser,
+    GoogleAddressLookup,
+)
 from shippy_gui.core.models import AutocompletePrediction
 from shippy_gui.widgets.address_form import AddressForm
 
@@ -16,9 +20,11 @@ class AddressParserComponentTests(unittest.TestCase):
     def setUp(self):
         self.gmaps = Mock()
         self.parser = AddressParser(self.gmaps)
+        self.component_parser = AddressComponentParser()
+        self.lookup = GoogleAddressLookup(self.gmaps)
 
     def test_parse_standard_address_components(self):
-        parsed = self.parser.parse_address_components(
+        parsed = self.component_parser.parse(
             [
                 {"long_name": "123", "types": ["street_number"]},
                 {"long_name": "Prison Rd", "types": ["route"]},
@@ -37,7 +43,7 @@ class AddressParserComponentTests(unittest.TestCase):
         self.assertEqual(parsed.country, "US")
 
     def test_parse_standard_address_ignores_establishment_for_street2(self):
-        parsed = self.parser.parse_address_components(
+        parsed = self.component_parser.parse(
             [
                 {"long_name": "123", "types": ["street_number"]},
                 {"long_name": "Main St", "types": ["route"]},
@@ -52,7 +58,7 @@ class AddressParserComponentTests(unittest.TestCase):
         self.assertIsNone(parsed.street2)
 
     def test_parse_facility_and_unit_components(self):
-        parsed = self.parser.parse_address_components(
+        parsed = self.component_parser.parse(
             [
                 {"long_name": "123", "types": ["street_number"]},
                 {"long_name": "Prison Rd", "types": ["route"]},
@@ -68,7 +74,7 @@ class AddressParserComponentTests(unittest.TestCase):
         self.assertEqual(parsed.street2, "Unit 42, Byrd Unit")
 
     def test_parse_zip_plus_four_and_city_fallback(self):
-        parsed = self.parser.parse_address_components(
+        parsed = self.component_parser.parse(
             [
                 {"long_name": "PO Box 1", "types": ["premise"]},
                 {"long_name": "Austin", "types": ["postal_town"]},
@@ -81,6 +87,18 @@ class AddressParserComponentTests(unittest.TestCase):
         self.assertEqual(parsed.street1, "PO Box 1")
         self.assertEqual(parsed.city, "Austin")
         self.assertEqual(parsed.zipcode, "78703-1029")
+
+    def test_google_lookup_uses_place_id_before_description_geocode(self):
+        self.gmaps.geocode.return_value = [{"address_components": []}]
+
+        self.lookup.lookup(
+            AutocompletePrediction(
+                description="123 Prison Rd, Huntsville, TX 77340, USA",
+                place_id="abc123",
+            )
+        )
+
+        self.gmaps.geocode.assert_called_once_with(place_id="abc123")
 
     def test_uses_place_id_before_description_geocode(self):
         self.gmaps.geocode.return_value = [
@@ -101,6 +119,25 @@ class AddressParserComponentTests(unittest.TestCase):
 
         self.assertEqual(parsed.street1, "123 Prison Rd")
         self.gmaps.geocode.assert_called_once_with(place_id="abc123")
+
+    def test_google_lookup_falls_back_to_description_when_place_id_lookup_returns_no_result(
+        self,
+    ):
+        self.gmaps.geocode.side_effect = [[], [{"address_components": []}]]
+
+        self.lookup.lookup(
+            AutocompletePrediction(
+                description="PO Box 1, Austin, TX", place_id="abc123"
+            )
+        )
+
+        self.assertEqual(
+            self.gmaps.geocode.call_args_list,
+            [
+                unittest.mock.call(place_id="abc123"),
+                unittest.mock.call(address="PO Box 1, Austin, TX", region="us"),
+            ],
+        )
 
     def test_falls_back_to_description_when_place_id_lookup_returns_no_result(self):
         self.gmaps.geocode.side_effect = [
