@@ -143,8 +143,6 @@ def _get_present_usb_printer_ids(conn) -> set[str]:
     """Return VID:PID values for USB printers that pass shippy-gui's WMI filters."""
     usb_ids: set[str] = set()
     for entity in conn.Win32_PnPEntity():
-        if getattr(entity, "PNPClass", None) != "Printer":
-            continue
         device_id = getattr(entity, "DeviceID", "") or ""
         if not device_id.startswith("USB"):
             continue

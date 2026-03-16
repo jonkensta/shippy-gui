@@ -167,9 +167,6 @@ class WindowsPrinterBackend(PrinterBackend):
         conn = wmi.WMI()
         usb_ids: set[str] = set()
         for entity in conn.Win32_PnPEntity():
-            if getattr(entity, "PNPClass", None) != "Printer":
-                continue
-
             device_id = getattr(entity, "DeviceID", "") or ""
             if not device_id.startswith("USB"):
                 continue
