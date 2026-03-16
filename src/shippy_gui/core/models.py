@@ -1,7 +1,7 @@
 """Pydantic models for configuration checking."""
 
 from typing import Any, Optional
-from pydantic import BaseModel, field_validator
+from pydantic import AnyHttpUrl, BaseModel, field_validator
 
 from shippy_gui.core.constants import (
     DEFAULT_FONT_SIZE,
@@ -100,6 +100,13 @@ class AutocompletePrediction(BaseModel):
     types: list[str] = []
 
 
+class IbpConfig(BaseModel):
+    """Model for IBP API configuration."""
+
+    url: Optional[AnyHttpUrl] = None
+    apikey: Optional[str] = None
+
+
 class EasypostConfig(BaseModel):
     """Model for Easypost configuration."""
 
@@ -135,6 +142,7 @@ class Config(BaseModel):
     easypost: EasypostConfig
     googlemaps: GoogleMapsConfig
     return_address: ReturnAddressConfig
+    ibp: Optional[IbpConfig] = None
 
     def get_font_size(self) -> int:
         """Get font size with default fallback."""

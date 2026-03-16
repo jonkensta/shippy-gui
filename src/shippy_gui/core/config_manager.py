@@ -100,6 +100,9 @@ class ConfigManager:
         """
         try:
             config_parser = configparser.ConfigParser()
+            # Seed with existing file content to preserve unknown sections.
+            config_parser.read(self._config_path, encoding="utf-8")
+
             log_file = ""
             if config.ui and config.ui.log_file:
                 log_file = config.ui.log_file
@@ -119,6 +122,11 @@ class ConfigManager:
                 "state": config.return_address.state,
                 "zipcode": config.return_address.zipcode,
             }
+            if config.ibp is not None:
+                config_parser["ibp"] = {
+                    "url": str(config.ibp.url) if config.ibp.url else "",
+                    "apikey": config.ibp.apikey or "",
+                }
 
             with open(self._config_path, "w", encoding="utf-8") as f:
                 config_parser.write(f)
