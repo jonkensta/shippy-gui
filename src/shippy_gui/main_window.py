@@ -29,7 +29,7 @@ class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
         """Initialize the user interface."""
         self.setWindowTitle("Shippy GUI - IBP Shipping Label Generator")
         self.setMinimumSize(800, 600)
-        self.resize(800, 850)
+        self.resize(800, self.screen().availableGeometry().height())
 
         # Create and set shipping tab as central widget
         self.shipping_tab = ShippingTab(config_path=self.config_path)
