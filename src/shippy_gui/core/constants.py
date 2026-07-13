@@ -77,6 +77,15 @@ SHIPMENT_CARRIER = "USPS"
 SHIPMENT_SERVICE = "USPS.LIBRARYMAIL"
 PARCEL_PREDEFINED_PACKAGE = "Parcel"
 
+# Default declared parcel dimensions in inches. USPS requires all three
+# dimensions for the "Parcel" container type. Library Mail is priced by
+# weight alone, so these just need to be large enough for any book package
+# while staying under the USPS nonstandard-size surcharge thresholds
+# (22 inches per side, 2 cubic feet).
+DEFAULT_PARCEL_LENGTH_IN = 20.0
+DEFAULT_PARCEL_WIDTH_IN = 14.0
+DEFAULT_PARCEL_HEIGHT_IN = 10.0
+
 # Weight limits for Library Mail (in pounds)
 WEIGHT_MIN_LBS = 1
 WEIGHT_MAX_LBS = 70

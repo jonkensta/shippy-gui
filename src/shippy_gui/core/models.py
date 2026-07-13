@@ -5,6 +5,9 @@ from pydantic import AnyHttpUrl, BaseModel, field_validator
 
 from shippy_gui.core.constants import (
     DEFAULT_FONT_SIZE,
+    DEFAULT_PARCEL_HEIGHT_IN,
+    DEFAULT_PARCEL_LENGTH_IN,
+    DEFAULT_PARCEL_WIDTH_IN,
     DEFAULT_WEIGHT_LBS,
     FONT_SIZE_MIN,
     FONT_SIZE_MAX,
@@ -100,6 +103,22 @@ class AutocompletePrediction(BaseModel):
     types: list[str] = []
 
 
+class ParcelConfig(BaseModel):
+    """Model for declared parcel dimensions in inches."""
+
+    length: float = DEFAULT_PARCEL_LENGTH_IN
+    width: float = DEFAULT_PARCEL_WIDTH_IN
+    height: float = DEFAULT_PARCEL_HEIGHT_IN
+
+    @field_validator("length", "width", "height")
+    @classmethod
+    def validate_positive(cls, v: float) -> float:
+        """Ensure parcel dimensions are positive."""
+        if v <= 0:
+            raise ValueError("Parcel dimensions must be positive")
+        return v
+
+
 class IbpConfig(BaseModel):
     """Model for IBP API configuration."""
 
@@ -143,6 +162,7 @@ class Config(BaseModel):
     googlemaps: GoogleMapsConfig
     return_address: ReturnAddressConfig
     ibp: Optional[IbpConfig] = None
+    parcel: ParcelConfig = ParcelConfig()
 
     def get_font_size(self) -> int:
         """Get font size with default fallback."""

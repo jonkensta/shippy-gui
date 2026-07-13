@@ -9,14 +9,15 @@ from shippy_gui.core.constants import (
     SHIPMENT_SERVICE,
     PARCEL_PREDEFINED_PACKAGE,
 )
-from shippy_gui.core.models import AddressBase
+from shippy_gui.core.models import AddressBase, ParcelConfig
 
 
 class ShipmentService:
     """Service for handling EasyPost shipment logic."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, parcel_config: ParcelConfig):
         self.client = easypost.EasyPostClient(api_key)
+        self.parcel_config = parcel_config
 
     def create_address(self, address: AddressBase) -> Any:
         """Create an address in EasyPost."""
@@ -30,7 +31,11 @@ class ShipmentService:
     def buy_shipment(self, from_addr_id: str, to_addr_id: str, weight_oz: float) -> Any:
         """Create a shipment, find the lowest rate, and buy postage."""
         parcel = self.client.parcel.create(
-            predefined_package=PARCEL_PREDEFINED_PACKAGE, weight=weight_oz
+            predefined_package=PARCEL_PREDEFINED_PACKAGE,
+            weight=weight_oz,
+            length=self.parcel_config.length,
+            width=self.parcel_config.width,
+            height=self.parcel_config.height,
         )
 
         shipment = self.client.shipment.create(
