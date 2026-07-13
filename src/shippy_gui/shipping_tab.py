@@ -87,7 +87,7 @@ class ShippingTab(QWidget):
         self.address_parser = AddressParser(self.gmaps)
 
         # Initialize Shipment Service
-        self.shipment_service = ShipmentService(config.easypost.apikey)
+        self.shipment_service = ShipmentService(config.easypost.apikey, config.parcel)
 
     def reload_config(self) -> bool:
         """Reload runtime configuration and recreate dependent services."""
@@ -103,7 +103,7 @@ class ShippingTab(QWidget):
 
         self.gmaps = googlemaps.Client(key=config.googlemaps.apikey)
         self.address_parser = AddressParser(self.gmaps)
-        self.shipment_service = ShipmentService(config.easypost.apikey)
+        self.shipment_service = ShipmentService(config.easypost.apikey, config.parcel)
 
         if (
             self.shipment_controls
