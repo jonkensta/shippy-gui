@@ -5,6 +5,7 @@ from typing import Optional
 from PySide6.QtCore import QThread, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
+from shippy_gui.core.refunds import RefundPolicy
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.core.shipment_workflow import (
     ShipmentPreparationError,
@@ -28,7 +29,7 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
     error = Signal(str)  # Error message
     warning = Signal(str)  # Warning message (non-blocking)
     label_ready = Signal(object, str, object)  # (image, printer_name, shipment_object)
-    print_failed = Signal(object, str)  # (shipment_object, reason)
+    refunded = Signal(object)  # RefundOutcome, already applied
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
@@ -53,6 +54,9 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
         """
         super().__init__()
         self.workflow = ShipmentWorkflow(shipment_service)
+        # Bound to the service that buys the postage, so a settings reload
+        # mid-shipment cannot refund against a different EasyPost account.
+        self.refund_policy = RefundPolicy(shipment_service)
         self.workflow_input = ShipmentWorkflowInput(
             from_address=from_address,
             to_address=to_address,
@@ -84,11 +88,26 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
         self.progress.emit("Printing label...")
         try:
             print_image(prepared.image, self.printer_name)
+        except RuntimeError as error:
+            self._refund(prepared.shipment, f"Printing error: {error}")
+            return
         except Exception as error:  # pylint: disable=broad-exception-caught
-            self.print_failed.emit(prepared.shipment, f"Printing error: {error}")
+            self._refund(prepared.shipment, f"Unexpected printing error: {error}")
             return
 
         self.success.emit(
             "Label printed successfully! "
             f"Tracking: {prepared.shipment.tracking_code}"
         )
+
+    def _refund(self, shipment, reason: str) -> None:
+        """Refund a shipment that failed to print.
+
+        The refund runs here, inside the worker thread, rather than being
+        delegated to the UI through a queued signal: it must survive the
+        window closing between the failure and the next event-loop turn.
+        The UI is notified of the outcome afterwards, for display only.
+        """
+        self.progress.emit("Requesting refund...")
+        outcome = self.refund_policy.refund(shipment, reason)
+        self.refunded.emit(outcome)

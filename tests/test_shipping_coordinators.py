@@ -15,6 +15,7 @@ from shippy_gui.core.models import (
     RecipientAddress,
     ReturnAddressConfig,
 )
+from shippy_gui.core.refunds import RefundOutcome
 from shippy_gui.printing.models import PrintDialogResult
 from shippy_gui.shipping_coordinators import (
     AddressLookupCoordinator,
@@ -52,7 +53,7 @@ class FakeWorker:
         self.error = FakeSignal()
         self.finished = FakeSignal()
         self.label_ready = FakeSignal()
-        self.print_failed = FakeSignal()
+        self.refunded = FakeSignal()
 
     def start(self):
         self.started = True
@@ -202,10 +203,10 @@ class ShippingCoordinatorTests(unittest.TestCase):
         "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
         return_value=Qt.KeyboardModifier.NoModifier,
     )
-    def test_background_print_failure_refunds_through_the_coordinator(
+    def test_background_refund_outcome_is_presented_not_reapplied(
         self, mock_keyboard_modifiers
     ):
-        """The worker's print failure must reach the one refund policy."""
+        """The worker already refunded; the UI must only report it."""
         del mock_keyboard_modifiers
         shipment_service = Mock()
         services = ShippingServices(
@@ -223,11 +224,70 @@ class ShippingCoordinatorTests(unittest.TestCase):
         )
         coordinator.create_label()
 
-        shipment = Mock(id="shp_123")
-        created_workers[0].print_failed.emit(shipment, "Printing error: offline")
+        created_workers[0].refunded.emit(
+            RefundOutcome(reason="Printing error: offline", refunded=True)
+        )
 
-        shipment_service.refund_shipment.assert_called_once_with("shp_123")
+        # The refund happened in the worker thread; do not fire a second one.
+        shipment_service.refund_shipment.assert_not_called()
         self.assertEqual(status_label.text(), "Printing error: offline. Refunded.")
+
+    @patch("shippy_gui.shipping_coordinators.QMessageBox.critical")
+    def test_failed_refund_outcome_is_escalated(self, mock_critical):
+        services = ShippingServices(shipment_service=Mock())
+        coordinator, _, _, status_label = self._build_flow_coordinator(services)
+
+        coordinator.present_refund_outcome(
+            RefundOutcome(reason="Print failed", refunded=False, error="boom")
+        )
+
+        self.assertEqual(status_label.text(), "Refund failed")
+        mock_critical.assert_called_once()
+
+    @patch(
+        "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.ShiftModifier,
+    )
+    @patch("shippy_gui.shipping_coordinators.print_image_with_dialog")
+    def test_dialog_refund_uses_the_buying_service_after_a_settings_reload(
+        self, mock_print_dialog, mock_keyboard_modifiers
+    ):
+        """A reload mid-shipment must not refund against the new account."""
+        del mock_keyboard_modifiers
+        mock_print_dialog.return_value = PrintDialogResult.FAILED
+        buying_service = Mock()
+        services = ShippingServices(
+            config=make_config(), shipment_service=buying_service
+        )
+        coordinator, _, _, _ = self._build_flow_coordinator(
+            services, lambda **kwargs: FakeWorker(**kwargs)
+        )
+        coordinator.create_label()
+
+        # Settings are saved while the print dialog is on screen.
+        replacement_service = Mock()
+        services.shipment_service = replacement_service
+
+        shipment = Mock(id="shp_123")
+        coordinator._on_label_ready(object(), "Alpha 20d1:7008", shipment)
+
+        buying_service.refund_shipment.assert_called_once_with("shp_123")
+        replacement_service.refund_shipment.assert_not_called()
+
+    def _coordinator_ready_for_dialog(self, shipment_service):
+        """Build a coordinator that has already started a shipment."""
+        services = ShippingServices(
+            config=make_config(), shipment_service=shipment_service
+        )
+        coordinator, _, _, status_label = self._build_flow_coordinator(
+            services, lambda **kwargs: FakeWorker(**kwargs)
+        )
+        with patch(
+            "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+            return_value=Qt.KeyboardModifier.ShiftModifier,
+        ):
+            coordinator.create_label()
+        return coordinator, status_label
 
     @patch("shippy_gui.shipping_coordinators.print_image_with_dialog")
     def test_dialog_print_failure_refunds_through_the_same_policy(
@@ -235,8 +295,7 @@ class ShippingCoordinatorTests(unittest.TestCase):
     ):
         mock_print_dialog.return_value = PrintDialogResult.FAILED
         shipment_service = Mock()
-        services = ShippingServices(shipment_service=shipment_service)
-        coordinator, _, _, status_label = self._build_flow_coordinator(services)
+        coordinator, status_label = self._coordinator_ready_for_dialog(shipment_service)
 
         shipment = Mock(id="shp_123")
         shipment.tracking_code = "TRACK123"
@@ -250,8 +309,7 @@ class ShippingCoordinatorTests(unittest.TestCase):
     def test_dialog_cancel_refunds_the_shipment(self, mock_print_dialog):
         mock_print_dialog.return_value = PrintDialogResult.CANCELED
         shipment_service = Mock()
-        services = ShippingServices(shipment_service=shipment_service)
-        coordinator, _, _, status_label = self._build_flow_coordinator(services)
+        coordinator, status_label = self._coordinator_ready_for_dialog(shipment_service)
 
         shipment = Mock(id="shp_456")
 
@@ -264,8 +322,7 @@ class ShippingCoordinatorTests(unittest.TestCase):
     def test_dialog_success_does_not_refund(self, mock_print_dialog):
         mock_print_dialog.return_value = PrintDialogResult.PRINTED
         shipment_service = Mock()
-        services = ShippingServices(shipment_service=shipment_service)
-        coordinator, _, _, status_label = self._build_flow_coordinator(services)
+        coordinator, status_label = self._coordinator_ready_for_dialog(shipment_service)
 
         shipment = Mock(id="shp_789")
         shipment.tracking_code = "TRACK789"

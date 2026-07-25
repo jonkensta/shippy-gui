@@ -127,10 +127,14 @@ class ConfigManager:
                 "zipcode": config.return_address.zipcode,
             }
             if config.ibp is not None:
-                config_parser["ibp"] = {
-                    "url": str(config.ibp.url) if config.ibp.url else "",
-                    "apikey": config.ibp.apikey or "",
-                }
+                # Write only the populated keys. A bare "url =" round-trips
+                # back through AnyHttpUrl and would fail to load.
+                ibp_section = {}
+                if config.ibp.url:
+                    ibp_section["url"] = str(config.ibp.url)
+                if config.ibp.apikey:
+                    ibp_section["apikey"] = config.ibp.apikey
+                config_parser["ibp"] = ibp_section
             else:
                 # Both IBP fields were cleared; drop the section entirely so the
                 # seeded copy above does not resurrect stale credentials.

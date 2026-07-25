@@ -70,6 +70,47 @@ class SettingsDialogSaveTests(unittest.TestCase):
         assert saved.ibp is not None
         self.assertEqual(saved.ibp.apikey, "ibp_key")
 
+    def test_save_with_only_an_ibp_key_still_reloads(self):
+        """A key without a URL must not write a bare "url =" that fails to load."""
+        dialog = SettingsDialog(self.config_path)
+        dialog.ibp_url_input.setText("")
+        dialog.ibp_key_input.setText("only_a_key")
+
+        with patch("shippy_gui.settings_dialog.QMessageBox.critical") as mock_critical:
+            dialog._save_config()
+
+        mock_critical.assert_not_called()
+        saved = load_config(self.config_path)
+        assert saved.ibp is not None
+        self.assertEqual(saved.ibp.apikey, "only_a_key")
+        self.assertIsNone(saved.ibp.url)
+
+    def test_existing_config_with_blank_ibp_url_loads(self):
+        """Configs already on disk carrying "url =" must still load."""
+        with open(self.config_path, "a", encoding="utf-8") as handle:
+            handle.write("\n[ibp]\nurl = \napikey = \n")
+
+        config = load_config(self.config_path)
+
+        assert config.ibp is not None
+        self.assertIsNone(config.ibp.url)
+        self.assertIsNone(config.ibp.apikey)
+
+    def test_clearing_both_ibp_fields_removes_the_section(self):
+        with open(self.config_path, "a", encoding="utf-8") as handle:
+            handle.write("\n[ibp]\nurl = https://old.example.com\napikey = stale\n")
+
+        dialog = SettingsDialog(self.config_path)
+        dialog.ibp_url_input.setText("")
+        dialog.ibp_key_input.setText("")
+
+        with patch("shippy_gui.settings_dialog.QMessageBox.critical") as mock_critical:
+            dialog._save_config()
+
+        mock_critical.assert_not_called()
+        saved = load_config(self.config_path)
+        self.assertIsNone(saved.ibp)
+
     def test_save_preserves_non_default_parcel_section(self):
         """The dialog has no parcel widgets; saving must not reset dimensions."""
         dialog = SettingsDialog(self.config_path)

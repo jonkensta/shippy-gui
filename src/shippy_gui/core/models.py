@@ -133,6 +133,19 @@ class IbpConfig(BaseModel):
     url: Optional[AnyHttpUrl] = None
     apikey: Optional[str] = None
 
+    @field_validator("url", "apikey", mode="before")
+    @classmethod
+    def normalize_blank(cls, v):
+        """Treat a blank value as absent.
+
+        Both fields are optional, and an INI file legitimately carries them
+        as ``url =``. Without this, AnyHttpUrl rejects the empty string and
+        the app cannot load a config it wrote itself.
+        """
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
 
 class EasypostConfig(BaseModel):
     """Model for Easypost configuration."""

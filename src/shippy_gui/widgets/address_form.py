@@ -67,7 +67,9 @@ class AddressForm(QWidget):  # pylint: disable=too-many-instance-attributes
         self.name_input.setToolTip(f"{self._subject.capitalize()}'s full name")
         layout.addRow("Name:", self.name_input)
 
-        self.company_input = QLineEdit()
+        # Parented to self even when unused, so it never becomes a stray
+        # top-level window.
+        self.company_input = QLineEdit(self)
         self.company_input.setPlaceholderText("Optional")
         self.company_input.setToolTip("Company or institution name (optional)")
         if self._include_company:

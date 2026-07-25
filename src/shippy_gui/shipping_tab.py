@@ -17,7 +17,7 @@ from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.config_manager import ConfigManager
 from shippy_gui.core.services import ShipmentService
-from shippy_gui.dialogs import show_config_error
+from shippy_gui.dialogs import show_config_error, show_error
 from shippy_gui.shipping_coordinators import (
     AddressLookupCoordinator,
     ShipmentFlowCoordinator,
@@ -93,17 +93,32 @@ class ShippingTab(QWidget):
         return True
 
     def _build_services(self) -> bool:
-        """(Re)create the API clients that depend on configuration."""
+        """(Re)create the API clients that depend on configuration.
+
+        Everything is constructed before anything is published to the shared
+        holder, so a failure part way through cannot leave the coordinators
+        holding a new config alongside a stale shipment service.
+        """
         config = self._config_manager.config
         if config is None:
             return False
 
+        try:
+            gmaps = googlemaps.Client(key=config.googlemaps.apikey)
+            address_parser = AddressParser(gmaps)
+            shipment_service = ShipmentService(config.easypost.apikey, config.parcel)
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            show_error(
+                self,
+                "Service Error",
+                f"Could not initialize API clients:\n\n{error}",
+            )
+            return False
+
         self._services.config = config
-        self._services.gmaps = googlemaps.Client(key=config.googlemaps.apikey)
-        self._services.address_parser = AddressParser(self._services.gmaps)
-        self._services.shipment_service = ShipmentService(
-            config.easypost.apikey, config.parcel
-        )
+        self._services.gmaps = gmaps
+        self._services.address_parser = address_parser
+        self._services.shipment_service = shipment_service
         return True
 
     def reload_config(self) -> bool:

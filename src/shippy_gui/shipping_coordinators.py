@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.constants import STATUS_COLORS, StatusLevel
 from shippy_gui.core.models import AutocompletePrediction, Config
+from shippy_gui.core.refunds import RefundOutcome, RefundPolicy
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.printing.models import PrintDialogResult
 from shippy_gui.printing.printer_manager import print_image_with_dialog
@@ -170,6 +171,10 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._services = services
         self._worker_factory = worker_factory
         self.worker: Optional[ShipmentWorker] = None
+        # Bound at create_label() to the service that buys the postage, so the
+        # dialog path refunds through the same EasyPost account even if
+        # settings are reloaded while the label is on screen.
+        self._refund_policy: Optional[RefundPolicy] = None
 
     def create_label(self) -> None:
         """Create and print a shipping label."""
@@ -189,6 +194,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             return
 
         self._shipment_controls.set_enabled(False)
+        self._refund_policy = RefundPolicy(shipment_service)
 
         use_dialog = (
             QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier
@@ -216,7 +222,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self.worker.error.connect(self._on_shipment_error)
         self.worker.finished.connect(self._on_shipment_finished)
         self.worker.label_ready.connect(self._on_label_ready)
-        self.worker.print_failed.connect(self.refund_shipment)
+        self.worker.refunded.connect(self.present_refund_outcome)
         self.worker.start()
 
     def _on_label_ready(self, image, printer_name: str, shipment: Any) -> None:
@@ -235,28 +241,32 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self.refund_shipment(shipment, "Print failed")
 
     def refund_shipment(self, shipment, reason: str) -> None:
-        """Refund a shipment whose label was not printed.
+        """Refund a shipment whose label was not printed, then present it.
 
-        The app must never leave purchased postage unprinted and unrefunded,
-        so every print failure - dialog or background - lands here.
+        Used by the print-dialog path, which already runs on the UI thread.
+        The background path refunds inside the worker and only calls
+        :meth:`present_refund_outcome`.
         """
-        shipment_service = self._services.shipment_service
-        if shipment_service is None:
+        if self._refund_policy is None:
             return
 
         self._status_presenter.set_status("Requesting refund...", StatusLevel.WARNING)
-        try:
-            shipment_service.refund_shipment(shipment.id)
+        self.present_refund_outcome(self._refund_policy.refund(shipment, reason))
+
+    def present_refund_outcome(self, outcome: RefundOutcome) -> None:
+        """Report the result of an already-attempted refund."""
+        if outcome.refunded:
             self._status_presenter.set_status(
-                f"{reason}. Refunded.", StatusLevel.WARNING
+                f"{outcome.reason}. Refunded.", StatusLevel.WARNING
             )
-        except Exception as error:  # pylint: disable=broad-exception-caught
-            self._status_presenter.set_status("Refund failed", StatusLevel.ERROR)
-            QMessageBox.critical(
-                self._parent_widget,
-                "Refund Error",
-                f"{reason}, but the refund did not go through:\n\n{error}",
-            )
+            return
+
+        self._status_presenter.set_status("Refund failed", StatusLevel.ERROR)
+        QMessageBox.critical(
+            self._parent_widget,
+            "Refund Error",
+            f"{outcome.reason}, but the refund did not go through:\n\n{outcome.error}",
+        )
 
     def _on_shipment_success(self, message: str) -> None:
         """Handle successful shipment."""
