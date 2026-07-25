@@ -54,6 +54,7 @@ class FakeWorker:
         self.finished = FakeSignal()
         self.label_ready = FakeSignal()
         self.refunded = FakeSignal()
+        self.deleteLater = Mock()
 
     def start(self):
         self.started = True
@@ -239,6 +240,35 @@ class ShippingCoordinatorTests(unittest.TestCase):
         self.assertEqual(status_label.text(), "Printing error: offline. Refunded.")
         # A failed print must be impossible to miss, not just a status line.
         self.mock_warning.assert_called_once()
+
+    def test_wait_for_worker_returns_immediately_when_idle(self):
+        coordinator, _, _, _ = self._build_flow_coordinator(ShippingServices())
+
+        self.assertTrue(coordinator.wait_for_worker())
+
+    @patch(
+        "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.NoModifier,
+    )
+    def test_finished_worker_is_handed_to_qt_not_just_dropped(
+        self, mock_keyboard_modifiers
+    ):
+        """Dropping a QThread reference outright risks a qFatal abort."""
+        del mock_keyboard_modifiers
+        services = ShippingServices(config=make_config(), shipment_service=Mock())
+        workers: list[FakeWorker] = []
+
+        def worker_factory(**kwargs):
+            worker = FakeWorker(**kwargs)
+            workers.append(worker)
+            return worker
+
+        coordinator, _, _, _ = self._build_flow_coordinator(services, worker_factory)
+        coordinator.create_label()
+        workers[0].finished.emit()
+
+        workers[0].deleteLater.assert_called_once_with()
+        self.assertIsNone(coordinator.worker)
 
     @patch("shippy_gui.shipping_coordinators.QMessageBox.critical")
     def test_refund_without_a_bound_policy_is_escalated_not_silent(self, mock_critical):

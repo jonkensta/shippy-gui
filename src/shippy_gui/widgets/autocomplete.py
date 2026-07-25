@@ -12,6 +12,7 @@ import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-err
 from PySide6.QtCore import QStringListModel, Qt, QThread, QTimer, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QCompleter, QLineEdit  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
+from shippy_gui.core.constants import LOOKUP_SHUTDOWN_WAIT_MS
 from shippy_gui.core.models import AutocompletePrediction
 from shippy_gui.core.places import GooglePlacesService
 
@@ -63,6 +64,10 @@ class GoogleMapsCompleter(
         self.debounce_delay = debounce_delay
         self.current_predictions: list[AutocompletePrediction] = []
         self.current_worker = None
+        # Every started worker is held here until it finishes. Dropping the
+        # last reference to a running QThread destroys it mid-run, which Qt
+        # turns into a qFatal abort - not a catchable exception.
+        self._active_workers: set[GoogleMapsLookupWorker] = set()
         self.current_text = ""
         self.next_request_id = 0
         self.current_request_id = -1
@@ -110,18 +115,34 @@ class GoogleMapsCompleter(
         self.next_request_id += 1
         self.current_request_id = request_id
 
-        # Note: Don't terminate existing worker - let it finish and ignore stale results
-        # This is safer than terminate() which can cause crashes
-
-        # Start new worker thread
-        self.current_worker = GoogleMapsLookupWorker(self.places, text, request_id)
-        self.current_worker.results_ready.connect(
+        # Don't terminate the existing worker - terminate() can corrupt state.
+        # It is left to finish and its stale results are ignored, which means
+        # it must stay referenced until then; see _active_workers.
+        worker = GoogleMapsLookupWorker(self.places, text, request_id)
+        worker.results_ready.connect(
             lambda req_id, predictions: self._on_results_ready(
                 text, req_id, predictions
             )
         )
-        self.current_worker.error_occurred.connect(self._on_error)
-        self.current_worker.start()
+        worker.error_occurred.connect(self._on_error)
+        worker.finished.connect(self._retire_finished_workers)
+
+        self._active_workers.add(worker)
+        self.current_worker = worker
+        worker.start()
+
+    def _retire_finished_workers(self) -> None:
+        """Release workers that have finished running."""
+        for worker in {w for w in self._active_workers if w.isFinished()}:
+            self._active_workers.discard(worker)
+            worker.deleteLater()
+
+    def wait_for_workers(self, timeout_ms: int = LOOKUP_SHUTDOWN_WAIT_MS) -> None:
+        """Block until in-flight lookups finish, so shutdown does not abort."""
+        for worker in list(self._active_workers):
+            if worker.isRunning():
+                worker.wait(timeout_ms)
+        self._retire_finished_workers()
 
     def _show_predictions(self, predictions: list[AutocompletePrediction]) -> None:
         """Publish predictions to the popup model."""

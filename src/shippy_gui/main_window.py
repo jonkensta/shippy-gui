@@ -43,6 +43,11 @@ class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
 
+    def closeEvent(self, event):  # pylint: disable=invalid-name  # Qt override
+        """Wait for background work before tearing the window down."""
+        self.shipping_tab.wait_for_background_work()
+        super().closeEvent(event)
+
     def _create_menu_bar(self):
         """Create the application menu bar."""
         menu_bar = self.menuBar()

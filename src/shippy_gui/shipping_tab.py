@@ -150,6 +150,17 @@ class ShippingTab(QWidget):
         self._setup_autocomplete()
         return True
 
+    def wait_for_background_work(self) -> None:
+        """Let in-flight threads finish before the tab goes away.
+
+        Destroying a running QThread aborts the process, and for a shipment
+        that would strand postage between purchase and refund.
+        """
+        self.shipment_flow.wait_for_worker()
+        completer = self._services.address_completer
+        if completer is not None:
+            completer.wait_for_workers()
+
     @staticmethod
     def _resolve_logo_path() -> Optional[str]:
         """Resolve the bundled logo image path if it is available.

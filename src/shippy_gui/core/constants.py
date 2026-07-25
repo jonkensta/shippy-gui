@@ -105,3 +105,16 @@ DEFAULT_WEIGHT_LBS = 3
 
 # Ounces per pound for weight conversion
 OUNCES_PER_POUND = 16
+
+
+# ============================================================================
+# Shutdown Constants
+# ============================================================================
+
+# How long to let an in-flight shipment finish when the window closes. A
+# shipment interrupted between buying postage and refunding it strands money,
+# so this is generous.
+SHIPMENT_SHUTDOWN_WAIT_MS = 30_000
+
+# Address lookups only cost a little latency, so they get far less grace.
+LOOKUP_SHUTDOWN_WAIT_MS = 3_000
