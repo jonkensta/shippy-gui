@@ -1,5 +1,6 @@
 """Unit tests for the headless shipment workflow service."""
 
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
@@ -8,6 +9,8 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 
+import shippy_gui
+from shippy_gui.core.constants import LOGO_PASTE_X, LOGO_PASTE_Y
 from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
 from shippy_gui.core.shipment_workflow import (
     ShipmentPreparationError,
@@ -144,6 +147,62 @@ class ShipmentWorkflowTests(unittest.TestCase):
                 self.workflow.prepare_label(workflow_input)
 
         self.assertIs(caught.exception.shipment, shipment)
+
+    @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
+    def test_bundled_logo_is_stamped_onto_the_label(self, mock_grab_png):
+        """The IBP logo must actually reach the printed label."""
+        logo_path = Path(shippy_gui.__file__).parent / "assets" / "logo.jpg"
+        self.assertTrue(logo_path.exists(), "bundled logo is missing")
+
+        shipment = Mock(id="shp_1")
+        shipment.postage_label.label_url = "https://example.com/label.png"
+        self.service.create_address.side_effect = [Mock(id="f"), Mock(id="t")]
+        self.service.buy_shipment.return_value = shipment
+        mock_grab_png.return_value = Image.new("RGB", (1200, 1800), "white")
+
+        prepared = self.workflow.prepare_label(
+            ShipmentWorkflowInput(
+                from_address=self.from_address,
+                to_address=self.to_address,
+                weight_lbs=2,
+                logo_path=str(logo_path),
+            )
+        )
+
+        with Image.open(logo_path) as logo:
+            logo_size = logo.size
+        region = prepared.image.crop(
+            (
+                LOGO_PASTE_X,
+                LOGO_PASTE_Y,
+                LOGO_PASTE_X + logo_size[0],
+                LOGO_PASTE_Y + logo_size[1],
+            )
+        )
+        # A blank label would be pure white across the paste region.
+        darkest, _brightest = region.convert("L").getextrema()
+        self.assertLess(darkest, 255)
+
+    @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
+    def test_label_too_small_for_the_logo_still_succeeds(self, mock_grab_png):
+        """Pillow clips an off-canvas paste; it must not fail the print."""
+        logo_path = Path(shippy_gui.__file__).parent / "assets" / "logo.jpg"
+        shipment = Mock(id="shp_1")
+        shipment.postage_label.label_url = "https://example.com/label.png"
+        self.service.create_address.side_effect = [Mock(id="f"), Mock(id="t")]
+        self.service.buy_shipment.return_value = shipment
+        mock_grab_png.return_value = Image.new("RGB", (200, 200), "white")
+
+        prepared = self.workflow.prepare_label(
+            ShipmentWorkflowInput(
+                from_address=self.from_address,
+                to_address=self.to_address,
+                weight_lbs=2,
+                logo_path=str(logo_path),
+            )
+        )
+
+        self.assertEqual(prepared.image.size, (200, 200))
 
     def test_core_workflow_does_not_import_qt(self):
         """core must stay headless: importing it must not pull in PySide6."""

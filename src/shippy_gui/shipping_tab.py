@@ -152,8 +152,11 @@ class ShippingTab(QWidget):
 
     @staticmethod
     def _resolve_logo_path() -> Optional[str]:
-        """Resolve the bundled logo image path if it is available."""
-        logo_path = Path(__file__).parent.parent / "assets" / "logo.jpg"
+        """Resolve the bundled logo image path if it is available.
+
+        The assets directory sits inside the package, next to this module.
+        """
+        logo_path = Path(__file__).parent / "assets" / "logo.jpg"
         return str(logo_path) if logo_path.exists() else None
 
     def _init_ui(self):

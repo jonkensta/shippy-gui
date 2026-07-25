@@ -41,6 +41,23 @@ class ShippingTabServiceTests(unittest.TestCase):
         with open(self.config_path, "w", encoding="utf-8") as handle:
             handle.write(BASE_INI)
 
+    def test_bundled_logo_is_found_inside_the_package(self):
+        """The assets directory lives next to the module, not one level up."""
+        logo_path = ShippingTab._resolve_logo_path()
+
+        self.assertIsNotNone(logo_path)
+        assert logo_path is not None
+        self.assertTrue(os.path.exists(logo_path))
+        self.assertEqual(
+            os.path.basename(os.path.dirname(os.path.dirname(logo_path))),
+            "shippy_gui",
+        )
+
+    def test_tab_exposes_the_logo_to_the_shipment_flow(self):
+        tab = ShippingTab(config_path=self.config_path)
+
+        self.assertIsNotNone(tab.logo_path)
+
     def test_services_are_wired_on_construction(self):
         tab = ShippingTab(config_path=self.config_path)
 
