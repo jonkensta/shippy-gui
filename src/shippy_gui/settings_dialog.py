@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 from pydantic import ValidationError
 
 from shippy_gui.core.config_manager import ConfigManager
+from shippy_gui.dialogs import show_config_error
 from shippy_gui.core.constants import (
     DEFAULT_FONT_SIZE,
     DEFAULT_WEIGHT_LBS,
@@ -147,7 +148,9 @@ class SettingsDialog(
 
     def _load_config(self):
         """Load configuration from config.ini file."""
-        if not self._config_manager.load(parent_widget=self):
+        result = self._config_manager.load()
+        if not result.ok:
+            show_config_error(self, result)
             return
 
         config = self._config_manager.config
@@ -217,5 +220,8 @@ class SettingsDialog(
             return
 
         # Save using ConfigManager
-        if self._config_manager.save(config, parent_widget=self):
-            self.accept()
+        save_result = self._config_manager.save(config)
+        if not save_result.ok:
+            show_config_error(self, save_result)
+            return
+        self.accept()

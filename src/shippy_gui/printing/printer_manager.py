@@ -13,7 +13,7 @@ from PySide6.QtGui import QPainter  # type: ignore[import-untyped] # pylint: dis
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
-from shippy_gui.printing.models import PrinterInfo
+from shippy_gui.printing.models import PrinterInfo, PrintDialogResult
 from shippy_gui.printing.printer_service import get_printer_service
 
 logger = logging.getLogger(__name__)
@@ -26,15 +26,6 @@ def get_available_printers() -> list[PrinterInfo]:
         List of discovered printers. Empty list if no printers found or on error.
     """
     return get_printer_service().get_available_printers()
-
-
-def get_default_printer() -> Optional[str]:
-    """Get the system default printer.
-
-    Returns:
-        Default printer name, or None if no default is set.
-    """
-    return get_printer_service().get_default_printer()
 
 
 def print_image(img: Image.Image, printer_name: str) -> None:
@@ -54,7 +45,7 @@ def print_image_with_dialog(
     img: Image.Image,
     parent_widget: QWidget,
     preferred_printer_name: Optional[str] = None,
-) -> str:
+) -> PrintDialogResult:
     """Show system print dialog and print image if accepted.
 
     This function uses Qt's QPrintDialog for cross-platform dialog printing.
@@ -65,7 +56,7 @@ def print_image_with_dialog(
         preferred_printer_name: Optional name of the printer to pre-select
 
     Returns:
-        One of "printed", "failed", or "canceled"
+        The PrintDialogResult describing what the dialog did.
     """
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     if preferred_printer_name:
@@ -76,10 +67,10 @@ def print_image_with_dialog(
 
     if dialog.exec() == QPrintDialog.DialogCode.Accepted:
         if _print_with_qprinter(img, printer):
-            return "printed"
-        return "failed"
+            return PrintDialogResult.PRINTED
+        return PrintDialogResult.FAILED
 
-    return "canceled"
+    return PrintDialogResult.CANCELED
 
 
 def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:

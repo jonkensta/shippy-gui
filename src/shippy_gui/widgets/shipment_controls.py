@@ -144,14 +144,6 @@ class ShipmentControls(QWidget):
         self.refresh_button.setEnabled(self._controls_enabled)
         self.create_button.setEnabled(self._controls_enabled and self._has_printers)
 
-    def reset(self):
-        """Reset controls after successful shipment.
-
-        Note: Weight is intentionally NOT reset since users often
-        ship multiple packages of the same weight in succession.
-        """
-        # Weight is preserved between shipments
-
     def validate(self) -> Optional[str]:
         """Validate controls and return error message if any."""
         if self.printer_combo.currentText() == self.NO_PRINTERS_LABEL:

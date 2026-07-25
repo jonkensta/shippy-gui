@@ -1,5 +1,7 @@
-"""Unit tests for the pure shipment workflow service."""
+"""Unit tests for the headless shipment workflow service."""
 
+import subprocess
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
@@ -7,14 +9,14 @@ from PIL import Image
 
 from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
 from shippy_gui.core.shipment_workflow import (
-    ShipmentWorkflowInput,
+    ShipmentPreparationError,
     ShipmentWorkflow,
-    ShipmentWorkflowStatus,
+    ShipmentWorkflowInput,
 )
 
 
 class ShipmentWorkflowTests(unittest.TestCase):
-    """Tests for shipment workflow preparation and print/refund behavior."""
+    """Tests for shipment creation and label preparation."""
 
     def setUp(self):
         self.service = Mock()
@@ -34,8 +36,15 @@ class ShipmentWorkflowTests(unittest.TestCase):
             zipcode="77340",
         )
 
+    def _workflow_input(self):
+        return ShipmentWorkflowInput(
+            from_address=self.from_address,
+            to_address=self.to_address,
+            weight_lbs=2,
+        )
+
     @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
-    def test_prepare_label_returns_ready_result(self, mock_grab_png):
+    def test_prepare_label_returns_shipment_and_image(self, mock_grab_png):
         from_addr = Mock(id="from_123")
         to_addr = Mock(id="to_123")
         shipment = Mock()
@@ -47,19 +56,14 @@ class ShipmentWorkflowTests(unittest.TestCase):
         progress = []
         warnings = []
 
-        result = self.workflow.prepare_label(
-            ShipmentWorkflowInput(
-                from_address=self.from_address,
-                to_address=self.to_address,
-                weight_lbs=2,
-            ),
+        prepared = self.workflow.prepare_label(
+            self._workflow_input(),
             on_progress=progress.append,
             on_warning=warnings.append,
         )
 
-        self.assertEqual(result.status, ShipmentWorkflowStatus.READY)
-        self.assertEqual(result.shipment, shipment)
-        self.assertIsNotNone(result.image)
+        self.assertEqual(prepared.shipment, shipment)
+        self.assertIsNotNone(prepared.image)
         self.assertIn("Purchasing postage...", progress)
         self.assertEqual(warnings, [])
 
@@ -81,46 +85,41 @@ class ShipmentWorkflowTests(unittest.TestCase):
             "shippy_gui.core.shipment_workflow.easypost.errors.InvalidRequestError",
             Exception,
         ):
-            result = self.workflow.prepare_label(
-                ShipmentWorkflowInput(
-                    from_address=self.from_address,
-                    to_address=self.to_address,
-                    weight_lbs=2,
-                ),
+            prepared = self.workflow.prepare_label(
+                self._workflow_input(),
                 on_warning=warnings.append,
             )
 
-        self.assertEqual(result.status, ShipmentWorkflowStatus.READY)
+        self.assertEqual(prepared.shipment, shipment)
         self.assertEqual(len(warnings), 2)
 
-    def test_print_prepared_label_requests_refund_on_runtime_error(self):
-        shipment = Mock(id="shp_123")
-        shipment.tracking_code = "TRACK123"
-        prepared_result = Mock(
-            status=ShipmentWorkflowStatus.READY,
-            shipment=shipment,
-            image=Image.new("RGB", (10, 10), "white"),
+    def test_prepare_label_raises_preparation_error_on_failure(self):
+        self.service.create_address.side_effect = RuntimeError("network down")
+
+        with self.assertRaises(ShipmentPreparationError) as caught:
+            self.workflow.prepare_label(self._workflow_input())
+
+        self.assertIn("network down", str(caught.exception))
+        # Postage is bought last, so a preparation failure leaves nothing to refund.
+        self.service.refund_shipment.assert_not_called()
+
+    def test_core_workflow_does_not_import_qt(self):
+        """core must stay headless: importing it must not pull in PySide6."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; import shippy_gui.core.shipment_workflow; "
+                "sys.exit(1 if any(m.startswith('PySide6') for m in sys.modules) else 0)",
+            ],
+            check=False,
+            capture_output=True,
         )
-
-        with patch(
-            "shippy_gui.core.shipment_workflow.print_image",
-            side_effect=RuntimeError("printer offline"),
-        ):
-            result = self.workflow.print_prepared_label(prepared_result, "Printer Name")
-
-        self.assertEqual(result.status, ShipmentWorkflowStatus.ERROR)
-        self.assertTrue(result.refund_requested)
-        self.service.refund_shipment.assert_called_once_with("shp_123")
-
-    def test_refund_after_failure_reports_secondary_refund_error(self):
-        shipment = Mock(id="shp_123")
-        self.service.refund_shipment.side_effect = RuntimeError("refund failed")
-
-        result = self.workflow.refund_after_failure(shipment, "Printing error")
-
-        self.assertEqual(result.status, ShipmentWorkflowStatus.ERROR)
-        self.assertFalse(result.refund_requested)
-        self.assertIn("Refund also failed", result.message)
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"core.shipment_workflow pulled in PySide6: {result.stderr.decode()}",
+        )
 
 
 if __name__ == "__main__":

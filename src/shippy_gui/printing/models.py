@@ -11,6 +11,14 @@ class PrinterTransport(str, Enum):
     USB = "usb"
 
 
+class PrintDialogResult(str, Enum):
+    """Outcome of showing the system print dialog."""
+
+    PRINTED = "printed"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+
 @dataclass(frozen=True)
 class PrinterInfo:
     """Printer metadata used for discovery and UI selection."""
