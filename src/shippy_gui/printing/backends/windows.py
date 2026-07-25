@@ -18,20 +18,53 @@ from shippy_gui.core.constants import (
 from shippy_gui.printing.backends.base import PrinterBackend
 
 logger = logging.getLogger(__name__)
+
 VID_PID_PATTERN = re.compile(r"VID_([0-9A-Fa-f]{4}).*PID_([0-9A-Fa-f]{4})")
+
+# Trailing USB identifiers in a Windows printer queue name, separated from the
+# rest of the name by a space, hyphen, or underscore:
+#   * "PM-2411-BT 2E3C:5760"              -> VID:PID, shared by every unit of a
+#     model, so it cannot tell two same-model printers apart (legacy), or
+#   * "Front-Desk PM-2411-BT Q529E65K52"  -> a USB serial, unique per unit.
+NAME_VID_PID_PATTERN = re.compile(r"[\s\-_]([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})$")
+NAME_SERIAL_PATTERN = re.compile(r"[\s\-_]([0-9A-Za-z]{6,})$")
+
+# Top-level USB device-instance ID, e.g. "USB\VID_2E3C&PID_5760\Q529E65K52".
+# The trailing segment is the per-unit serial (or, lacking one, a port-based
+# instance path). An optional "&REV_xxxx" is allowed, but interface/child nodes
+# ("...&MI_00\...") do not match, so each match is one physical device rather
+# than several PnP nodes for the same printer.
+USB_INSTANCE_PATTERN = re.compile(
+    r"^USB\\VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})"
+    r"(?:&REV_[0-9A-Fa-f]{4})?\\([^\\]+)$",
+    re.IGNORECASE,
+)
+
+# VID/PID prefix of a device-instance ID. Used to scope a serial match to a real
+# USB device and read its VID/PID; tolerant of composite and "&REV_" forms,
+# because the exact serial-tail comparison does the actual disambiguation.
+USB_VID_PID_PREFIX_PATTERN = re.compile(
+    r"^USB\\VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})", re.IGNORECASE
+)
 
 
 class WindowsPrinterBackend(PrinterBackend):
     """Windows printer backend using win32print/win32ui."""
 
     def get_available_printers(self) -> list[str]:
-        """Get strict-match USB label printers currently present on Windows."""
+        """Get strict-match USB label printers currently present on Windows.
+
+        A queue is kept only when its trailing USB identifier resolves to a
+        connected device. Naming a queue after the printer's serial number
+        rather than its VID:PID is what lets two units of the same model be
+        told apart, since VID:PID is identical across a model.
+        """
         printers = self._get_installed_printers()
         if not printers:
             return []
 
         try:
-            usb_ids = self._get_present_usb_printer_ids()
+            device_ids = self._get_present_usb_device_ids()
         except ImportError:
             logger.warning("WMI not available for Windows USB printer filtering")
             return []
@@ -45,11 +78,67 @@ class WindowsPrinterBackend(PrinterBackend):
         return [
             printer_name
             for printer_name in printers
-            if any(
-                self._printer_name_matches_usb_id(printer_name, usb_id)
-                for usb_id in usb_ids
-            )
+            if self.matching_device_keys(printer_name, device_ids)
         ]
+
+    @staticmethod
+    def parse_name_identifier(
+        printer_name: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Split a queue name's trailing USB identifier.
+
+        Returns:
+            ``(vid_pid, serial)`` where exactly one is set, or ``(None, None)``
+            when the name carries no USB identifier. A VID:PID suffix wins over
+            a serial suffix, since it is the older, unambiguous spelling.
+        """
+        vid_pid = NAME_VID_PID_PATTERN.search(printer_name.rstrip())
+        if vid_pid:
+            return f"{vid_pid.group(1).upper()}:{vid_pid.group(2).upper()}", None
+
+        serial = NAME_SERIAL_PATTERN.search(printer_name.rstrip())
+        if serial:
+            return None, serial.group(1).upper()
+
+        return None, None
+
+    @classmethod
+    def matching_device_keys(
+        cls, printer_name: str, device_ids: set[str]
+    ) -> set[tuple[str, str, str]]:
+        """Identify the physical devices a queue name resolves to.
+
+        Each key is ``(vid, pid, instance_tail)``, one per physical device.
+
+        For a serial-named queue the serial must equal the device-instance tail
+        exactly; a name that merely ends in similar-looking characters cannot
+        bind to an unrelated unit. For a legacy VID:PID queue only top-level
+        device-instance nodes count, so one printer is not counted once per
+        interface node.
+        """
+        vid_pid, serial = cls.parse_name_identifier(printer_name)
+        if vid_pid is None and serial is None:
+            return set()
+
+        keys: set[tuple[str, str, str]] = set()
+        for device_id in device_ids:
+            if serial is not None:
+                prefix = USB_VID_PID_PREFIX_PATTERN.match(device_id)
+                tail = device_id.rsplit("\\", 1)[-1]
+                if prefix and tail.upper() == serial:
+                    keys.add(
+                        (prefix.group(1).upper(), prefix.group(2).upper(), tail.upper())
+                    )
+                continue
+
+            instance = USB_INSTANCE_PATTERN.match(device_id)
+            if not instance:
+                continue
+            device_vid, device_pid, tail = instance.groups()
+            if f"{device_vid.upper()}:{device_pid.upper()}" == vid_pid:
+                keys.add((device_vid.upper(), device_pid.upper(), tail.upper()))
+
+        return keys
 
     def get_default_printer(self) -> Optional[str]:
         """Get default printer using win32print."""
@@ -160,15 +249,20 @@ class WindowsPrinterBackend(PrinterBackend):
             logger.debug("Windows printer enumeration failed", exc_info=True)
         return []
 
-    def _get_present_usb_printer_ids(self) -> set[str]:
-        """Return normalized VID:PID values for present USB printer devices."""
+    def _get_present_usb_device_ids(self) -> set[str]:
+        """Return device-instance IDs for present, working USB devices.
+
+        The full instance ID is kept rather than just VID:PID, because the
+        trailing segment carries the per-unit serial used to disambiguate two
+        printers of the same model.
+        """
         import wmi  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
 
         conn = wmi.WMI()
-        usb_ids: set[str] = set()
+        device_ids: set[str] = set()
         for entity in conn.Win32_PnPEntity():
             device_id = getattr(entity, "DeviceID", "") or ""
-            if not device_id.startswith("USB"):
+            if not device_id.upper().startswith("USB"):
                 continue
 
             status = (getattr(entity, "Status", "") or "").lower()
@@ -181,10 +275,8 @@ class WindowsPrinterBackend(PrinterBackend):
             if error_code not in (None, 0):
                 continue
 
-            usb_id = self._extract_vid_pid(device_id)
-            if usb_id:
-                usb_ids.add(self._normalize_identifier(usb_id))
-        return usb_ids
+            device_ids.add(device_id)
+        return device_ids
 
     @staticmethod
     def _extract_vid_pid(device_id: str) -> Optional[str]:
@@ -194,23 +286,3 @@ class WindowsPrinterBackend(PrinterBackend):
             return None
         vendor_id, product_id = match.groups()
         return f"{vendor_id.lower()}:{product_id.lower()}"
-
-    @staticmethod
-    def _normalize_identifier(value: str) -> str:
-        """Normalize a VID:PID identifier for matching."""
-        return value.strip().upper()
-
-    def _printer_name_matches_usb_id(self, printer_name: str, usb_id: str) -> bool:
-        """Return True when printer name ends with the expected VID:PID suffix."""
-        normalized_printer_name = printer_name.rstrip().upper()
-        # Accept raw or pre-normalized VID:PID input.
-        normalized_usb_id = self._normalize_identifier(usb_id)
-        if not normalized_printer_name.endswith(normalized_usb_id):
-            return False
-
-        boundary_index = len(normalized_printer_name) - len(normalized_usb_id)
-        if boundary_index == 0:
-            return True
-
-        # Only whitespace and underscore are accepted suffix separators by design.
-        return normalized_printer_name[boundary_index - 1] in {" ", "\t", "_"}

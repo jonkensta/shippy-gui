@@ -43,6 +43,47 @@ class PrinterServiceTests(unittest.TestCase):
         self.assertIsNone(printers[1].usb_id)
         self.assertIsNone(printers[1].transport)
 
+    def test_serial_named_printer_is_reported_as_usb(self):
+        service = PrinterService(
+            backend=FakePrinterBackend(
+                printers=["Front-Desk PM-2411-BT Q529E65K5250028"],
+                default_printer=None,
+            )
+        )
+
+        printer = service.get_available_printers()[0]
+
+        self.assertEqual(printer.serial, "Q529E65K5250028")
+        self.assertIsNone(printer.usb_id)
+        self.assertEqual(printer.transport.value, "usb")
+
+    def test_ordinary_trailing_word_is_not_mistaken_for_a_serial(self):
+        service = PrinterService(
+            backend=FakePrinterBackend(
+                printers=["Office Printer"], default_printer=None
+            )
+        )
+
+        printer = service.get_available_printers()[0]
+
+        self.assertIsNone(printer.serial)
+        self.assertIsNone(printer.transport)
+
+    def test_two_same_model_units_are_distinguishable_by_serial(self):
+        service = PrinterService(
+            backend=FakePrinterBackend(
+                printers=[
+                    "Front-Desk PM-2411-BT Q529E65K5250028",
+                    "Back-Room PM-2411-BT Q529E65K5250099",
+                ],
+                default_printer=None,
+            )
+        )
+
+        serials = {printer.serial for printer in service.get_available_printers()}
+
+        self.assertEqual(serials, {"Q529E65K5250028", "Q529E65K5250099"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -49,21 +49,96 @@ class WindowsPrinterBackendTests(unittest.TestCase):
     def test_extract_vid_pid_returns_none_for_malformed_id(self):
         self.assertIsNone(self.backend._extract_vid_pid("USB\\MISSING"))
 
-    def test_printer_name_matches_usb_id_with_supported_separators(self):
-        self.assertTrue(
-            self.backend._printer_name_matches_usb_id(
-                "iDPRT_SP310_20d1:7008", "20d1:7008"
+    def test_parse_name_identifier_reads_vid_pid_with_supported_separators(self):
+        for name in (
+            "iDPRT_SP310_20d1:7008",
+            "iDPRT SP310 20d1:7008",
+            "iDPRT-SP310-20d1:7008",
+        ):
+            self.assertEqual(
+                WindowsPrinterBackend.parse_name_identifier(name),
+                ("20D1:7008", None),
+                msg=name,
             )
+
+    def test_parse_name_identifier_reads_a_serial_suffix(self):
+        self.assertEqual(
+            WindowsPrinterBackend.parse_name_identifier(
+                "Front-Desk PM-2411-BT Q529E65K5250028"
+            ),
+            (None, "Q529E65K5250028"),
         )
-        self.assertTrue(
-            self.backend._printer_name_matches_usb_id(
-                "iDPRT SP310 20d1:7008", "20d1:7008"
-            )
+
+    def test_parse_name_identifier_prefers_vid_pid_over_serial(self):
+        """VID:PID is the older spelling and stays authoritative when present."""
+        self.assertEqual(
+            WindowsPrinterBackend.parse_name_identifier("PM2411 Q529E65 20d1:7008"),
+            ("20D1:7008", None),
         )
-        self.assertFalse(
-            self.backend._printer_name_matches_usb_id(
-                "iDPRT-SP310-20d1:7008", "20d1:7008"
-            )
+
+    def test_parse_name_identifier_ignores_names_without_an_identifier(self):
+        self.assertEqual(
+            WindowsPrinterBackend.parse_name_identifier("Office"), (None, None)
+        )
+
+    def test_serial_named_queues_bind_only_to_their_own_unit(self):
+        """Two printers of one model share a VID:PID; only serials separate them."""
+        device_ids = {
+            r"USB\VID_2E3C&PID_5760\Q529E65K5250028",
+            r"USB\VID_2E3C&PID_5760\Q529E65K5250099",
+        }
+
+        first = WindowsPrinterBackend.matching_device_keys(
+            "Front-Desk PM-2411-BT Q529E65K5250028", device_ids
+        )
+        second = WindowsPrinterBackend.matching_device_keys(
+            "Back-Room PM-2411-BT Q529E65K5250099", device_ids
+        )
+
+        self.assertEqual(first, {("2E3C", "5760", "Q529E65K5250028")})
+        self.assertEqual(second, {("2E3C", "5760", "Q529E65K5250099")})
+        self.assertNotEqual(first, second)
+
+    def test_serial_match_requires_the_whole_instance_tail(self):
+        """A suffix-colliding serial must not bind to another unit."""
+        device_ids = {r"USB\VID_2E3C&PID_5760\XXQ529E65K5250028"}
+
+        keys = WindowsPrinterBackend.matching_device_keys(
+            "Front-Desk PM-2411-BT Q529E65K5250028", device_ids
+        )
+
+        self.assertEqual(keys, set())
+
+    def test_serial_match_tolerates_a_revision_segment(self):
+        device_ids = {r"USB\VID_2E3C&PID_5760&REV_0100\Q529E65K5250028"}
+
+        keys = WindowsPrinterBackend.matching_device_keys(
+            "Front-Desk PM-2411-BT Q529E65K5250028", device_ids
+        )
+
+        self.assertEqual(keys, {("2E3C", "5760", "Q529E65K5250028")})
+
+    def test_vid_pid_queue_counts_a_printer_once_despite_child_nodes(self):
+        """Interface nodes must not make one printer look like several."""
+        device_ids = {
+            r"USB\VID_20D1&PID_7008\5&3A2D8B1E&0&1",
+            r"USB\VID_20D1&PID_7008&MI_00\6&1F2E3D4C&0&0000",
+        }
+
+        keys = WindowsPrinterBackend.matching_device_keys(
+            "iDPRT_SP310_20d1:7008", device_ids
+        )
+
+        self.assertEqual(keys, {("20D1", "7008", "5&3A2D8B1E&0&1")})
+
+    def test_vid_pid_queue_does_not_match_a_different_model(self):
+        device_ids = {r"USB\VID_9999&PID_0001\5&3A2D8B1E&0&1"}
+
+        self.assertEqual(
+            WindowsPrinterBackend.matching_device_keys(
+                "iDPRT_SP310_20d1:7008", device_ids
+            ),
+            set(),
         )
 
     @patch.object(WindowsPrinterBackend, "_get_installed_printers")
@@ -110,7 +185,7 @@ class WindowsPrinterBackendTests(unittest.TestCase):
         with patch.dict(sys.modules, {"wmi": fake_wmi_module}):
             self.assertEqual(self.backend.get_available_printers(), [])
 
-    def test_get_present_usb_printer_ids_excludes_config_manager_error_devices(self):
+    def test_get_present_usb_device_ids_excludes_config_manager_error_devices(self):
         fake_wmi_module = types.SimpleNamespace(
             WMI=lambda: FakeWMIConnection(
                 [
@@ -125,7 +200,36 @@ class WindowsPrinterBackendTests(unittest.TestCase):
 
         with patch.dict(sys.modules, {"wmi": fake_wmi_module}):
             self.assertEqual(
-                self.backend._get_present_usb_printer_ids(), {"9999:0001".upper()}
+                self.backend._get_present_usb_device_ids(),
+                {r"USB\VID_9999&PID_0001\5&3A2D8B1E&0&2"},
+            )
+
+    @patch.object(WindowsPrinterBackend, "_get_installed_printers")
+    def test_get_available_printers_lists_two_same_model_units_by_serial(
+        self, mock_get_installed_printers
+    ):
+        """The point of the change: same model, two units, both selectable."""
+        mock_get_installed_printers.return_value = [
+            "Front-Desk PM-2411-BT Q529E65K5250028",
+            "Back-Room PM-2411-BT Q529E65K5250099",
+            "Unplugged PM-2411-BT Q529E65K5250777",
+        ]
+        fake_wmi_module = types.SimpleNamespace(
+            WMI=lambda: FakeWMIConnection(
+                [
+                    FakePnPEntity(r"USB\VID_2E3C&PID_5760\Q529E65K5250028"),
+                    FakePnPEntity(r"USB\VID_2E3C&PID_5760\Q529E65K5250099"),
+                ]
+            )
+        )
+
+        with patch.dict(sys.modules, {"wmi": fake_wmi_module}):
+            self.assertEqual(
+                self.backend.get_available_printers(),
+                [
+                    "Front-Desk PM-2411-BT Q529E65K5250028",
+                    "Back-Room PM-2411-BT Q529E65K5250099",
+                ],
             )
 
     @patch.object(WindowsPrinterBackend, "_get_installed_printers")

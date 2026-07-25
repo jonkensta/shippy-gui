@@ -12,7 +12,8 @@ from shippy_gui.printing.backends.null import NullPrinterBackend
 from shippy_gui.printing.models import PrinterInfo, PrinterTransport
 
 logger = logging.getLogger(__name__)
-USB_SUFFIX_PATTERN = re.compile(r"(?:[\s_]|^)([0-9A-Fa-f]{4}:[0-9A-Fa-f]{4})$")
+USB_SUFFIX_PATTERN = re.compile(r"(?:[\s\-_]|^)([0-9A-Fa-f]{4}:[0-9A-Fa-f]{4})$")
+SERIAL_SUFFIX_PATTERN = re.compile(r"[\s\-_]([0-9A-Za-z]{6,})$")
 
 
 class PrinterService:
@@ -100,15 +101,30 @@ class PrinterService:
     def _build_printer_info(
         printer_name: str, default_printer: Optional[str]
     ) -> PrinterInfo:
-        """Adapt a backend printer name into typed UI metadata."""
+        """Adapt a backend printer name into typed UI metadata.
+
+        A queue may be named after either its VID:PID or its serial number.
+        Only the serial identifies one physical unit, so two printers of the
+        same model must be named by serial to be told apart.
+        """
         usb_match = USB_SUFFIX_PATTERN.search(printer_name)
         usb_id = usb_match.group(1).upper() if usb_match else None
-        transport = PrinterTransport.USB if usb_id else None
+
+        serial = None
+        if usb_id is None:
+            serial_match = SERIAL_SUFFIX_PATTERN.search(printer_name.rstrip())
+            # Require a digit so ordinary trailing words ("Office Printer")
+            # are not mistaken for a serial number.
+            if serial_match and any(char.isdigit() for char in serial_match.group(1)):
+                serial = serial_match.group(1).upper()
+
+        transport = PrinterTransport.USB if (usb_id or serial) else None
         return PrinterInfo(
             system_name=printer_name,
             is_default=printer_name == default_printer,
             transport=transport,
             usb_id=usb_id,
+            serial=serial,
         )
 
 
