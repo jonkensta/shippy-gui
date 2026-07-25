@@ -1,5 +1,7 @@
 """Settings dialog for shippy-gui configuration."""
 
+from typing import Any
+
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
     QDialog,
     QVBoxLayout,
@@ -171,7 +173,7 @@ class SettingsDialog(
     def _save_config(self):
         """Save configuration to config.ini file with validation."""
         # Build config dict from form inputs
-        config_dict = {
+        config_dict: dict[str, dict[str, Any]] = {
             "ui": {
                 "font_size": self.font_size_input.value(),
                 "default_weight": self.default_weight_input.value(),
@@ -191,11 +193,17 @@ class SettingsDialog(
                 "state": self.return_state_input.text().strip(),
                 "zipcode": self.return_zipcode_input.text().strip(),
             },
-            "ibp": {
-                "url": self.ibp_url_input.text().strip(),
-                "apikey": self.ibp_key_input.text().strip(),
-            },
         }
+
+        # Both IBP fields are optional. An empty URL must be omitted rather than
+        # sent as "", which AnyHttpUrl rejects outright.
+        ibp_url = self.ibp_url_input.text().strip()
+        ibp_apikey = self.ibp_key_input.text().strip()
+        if ibp_url or ibp_apikey:
+            config_dict["ibp"] = {
+                "url": ibp_url or None,
+                "apikey": ibp_apikey or None,
+            }
 
         # Validate with Pydantic
         try:
