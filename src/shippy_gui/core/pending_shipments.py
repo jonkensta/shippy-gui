@@ -14,6 +14,7 @@ the app cannot tell "crashed before printing" from "printed, then crashed".
 import json
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from typing import Optional
 
@@ -104,20 +105,45 @@ class PendingShipmentJournal:
             return []
 
         entries = []
+        malformed = 0
         for item in raw:
-            if not isinstance(item, dict):
-                continue
-            shipment_id = item.get("shipment_id")
-            if not shipment_id:
+            if not isinstance(item, dict) or not item.get("shipment_id"):
+                # A damaged entry may be the only trace of unrefunded
+                # postage, so it is counted rather than quietly dropped.
+                malformed += 1
                 continue
             entries.append(
                 PendingShipment(
-                    shipment_id=str(shipment_id),
+                    shipment_id=str(item["shipment_id"]),
                     tracking_code=item.get("tracking_code"),
                     recorded_at=item.get("recorded_at"),
                 )
             )
+
+        if malformed:
+            self._preserve_for_inspection(f"{malformed} unreadable entry(s)")
+
         return entries
+
+    def _preserve_for_inspection(self, reason: str) -> None:
+        """Copy a partly-damaged journal aside, keeping the usable entries.
+
+        Unlike :meth:`_quarantine` this does not move the file: the readable
+        entries still need to be reconciled. The copy exists so the operator
+        can be told, and can go looking for what was lost.
+        """
+        logger.error(
+            "Pending-shipment journal %s has %s; copying to %s",
+            self._path,
+            reason,
+            self.corrupt_path,
+        )
+        if os.path.exists(self.corrupt_path):
+            return
+        try:
+            shutil.copyfile(self._path, self.corrupt_path)
+        except OSError:
+            logger.error("Could not copy %s aside", self._path, exc_info=True)
 
     def _quarantine(self, reason: str) -> None:
         """Move an unusable journal aside so the operator can be told.

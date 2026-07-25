@@ -76,11 +76,38 @@ class PendingShipmentJournalTests(unittest.TestCase):
 
         self.assertEqual(self.journal.pending(), [])
 
-    def test_entries_without_an_id_are_skipped(self):
+    def test_malformed_entries_are_surfaced_not_silently_dropped(self):
+        """A damaged entry may be the only trace of unrefunded postage."""
         with open(self.path, "w", encoding="utf-8") as handle:
             handle.write('[{"tracking_code": "T"}, {"shipment_id": "shp_1"}]')
 
+        # The readable entry is still returned so it can be reconciled...
         self.assertEqual([e.shipment_id for e in self.journal.pending()], ["shp_1"])
+        # ...and a copy is left behind so the operator can be warned.
+        self.assertTrue(os.path.exists(self.journal.corrupt_path))
+
+    def test_a_clean_journal_leaves_no_corrupt_copy(self):
+        self.journal.record("shp_1")
+
+        self.journal.pending()
+
+        self.assertFalse(os.path.exists(self.journal.corrupt_path))
+
+    def test_unparseable_journal_is_moved_aside(self):
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write("this is not json")
+
+        self.assertEqual(self.journal.pending(), [])
+        self.assertTrue(os.path.exists(self.journal.corrupt_path))
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_record_reports_whether_it_persisted(self):
+        self.assertTrue(self.journal.record("shp_1"))
+
+        unwritable = PendingShipmentJournal(
+            os.path.join(self._tempdir.name, "missing-dir", "journal.json")
+        )
+        self.assertFalse(unwritable.record("shp_1"))
 
     def test_blank_ids_are_ignored(self):
         self.journal.record("")
