@@ -1,6 +1,7 @@
 """Unified shipping tab with manual address entry."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
@@ -11,11 +12,17 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QGroupBox,
     QLineEdit,
     QLabel,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.config_manager import ConfigManager
+from shippy_gui.core.pending_shipments import (
+    PendingShipmentJournal,
+    journal_path_for,
+)
+from shippy_gui.core.refunds import RefundPolicy
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.dialogs import show_config_error, show_error
 from shippy_gui.shipping_coordinators import (
@@ -41,7 +48,12 @@ class ShippingTab(QWidget):
         """Initialize the shipping tab."""
         super().__init__(parent)
         self._config_manager = ConfigManager(config_path)
-        self._services = ShippingServices(logo_path=self._resolve_logo_path())
+        self._services = ShippingServices(
+            logo_path=self._resolve_logo_path(),
+            journal=PendingShipmentJournal(
+                journal_path_for(self._config_manager.config_path)
+            ),
+        )
 
         self._load_config()
         self._build_services()
@@ -149,6 +161,63 @@ class ShippingTab(QWidget):
 
         self._setup_autocomplete()
         return True
+
+    def reconcile_pending_shipments(self) -> None:
+        """Resolve postage bought in a previous run that never got an outcome.
+
+        The app cannot distinguish "crashed before printing" from "printed,
+        then crashed", and refunding a label that was actually printed and
+        mailed is worse than the cost of the postage. So the operator decides.
+        """
+        journal = self._services.journal
+        shipment_service = self._services.shipment_service
+        if journal is None or shipment_service is None:
+            return
+
+        pending = journal.pending()
+        if not pending:
+            return
+
+        described = "\n".join(
+            f"  - {entry.shipment_id}"
+            + (f" (tracking {entry.tracking_code})" if entry.tracking_code else "")
+            for entry in pending
+        )
+        answer = QMessageBox.question(
+            self,
+            "Unfinished Shipment",
+            f"{len(pending)} shipment(s) had postage bought last time but were "
+            "never confirmed printed:\n\n"
+            f"{described}\n\n"
+            "Refund them now?\n\n"
+            "Choose No if the labels did print - refunding a label that was "
+            "already used on a package would leave it without valid postage.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            for entry in pending:
+                journal.clear(entry.shipment_id)
+            return
+
+        policy = RefundPolicy(shipment_service)
+        failures = []
+        for entry in pending:
+            outcome = policy.refund(
+                SimpleNamespace(id=entry.shipment_id), "Unfinished shipment"
+            )
+            if outcome.refunded:
+                journal.clear(entry.shipment_id)
+            else:
+                failures.append(f"{entry.shipment_id}: {outcome.error}")
+
+        if failures:
+            show_error(
+                self,
+                "Refund Error",
+                "Some shipments could not be refunded and are still recorded:\n\n"
+                + "\n".join(failures),
+            )
 
     def wait_for_background_work(self) -> None:
         """Let in-flight threads finish before the tab goes away.

@@ -1,11 +1,14 @@
 """Unit tests for the shipment worker's print and refund behavior."""
 
+import os
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 from PIL import Image
 
 from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
+from shippy_gui.core.pending_shipments import PendingShipmentJournal
 from shippy_gui.core.shipment_workflow import (
     PreparedLabel,
     ShipmentPreparationError,
@@ -17,6 +20,8 @@ class ShipmentWorkerTests(unittest.TestCase):
     """Tests that run ShipmentWorker.run() directly, without a thread."""
 
     def setUp(self):
+        self._tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tempdir.cleanup)
         self.shipment_service = Mock()
         self.worker = ShipmentWorker(
             shipment_service=self.shipment_service,
@@ -166,6 +171,82 @@ class ShipmentWorkerTests(unittest.TestCase):
         mock_print.assert_not_called()
         self.assertEqual(len(self.emitted["label_ready"]), 1)
         self.shipment_service.refund_shipment.assert_not_called()
+
+    def test_dialog_handoff_leaves_a_journal_record_to_recover_from(self):
+        """The crash window: postage bought, dialog pending, app dies."""
+        journal = PendingShipmentJournal(
+            os.path.join(self._tempdir.name, "pending.json")
+        )
+        self.worker.journal = journal
+        self.worker.use_dialog = True
+
+        with patch.object(
+            self.worker.workflow, "prepare_label", return_value=self.prepared
+        ):
+            self.worker.run()
+
+        # run() returned with the outcome unknown; the record must persist.
+        self.assertEqual(
+            [entry.shipment_id for entry in journal.pending()], ["shp_123"]
+        )
+
+    def test_successful_print_clears_the_journal(self):
+        journal = PendingShipmentJournal(
+            os.path.join(self._tempdir.name, "pending.json")
+        )
+        self.worker.journal = journal
+
+        with (
+            patch.object(
+                self.worker.workflow, "prepare_label", return_value=self.prepared
+            ),
+            patch("shippy_gui.workers.shipment_worker.print_image"),
+        ):
+            self.worker.run()
+
+        self.assertEqual(journal.pending(), [])
+
+    def test_successful_refund_clears_the_journal(self):
+        journal = PendingShipmentJournal(
+            os.path.join(self._tempdir.name, "pending.json")
+        )
+        self.worker.journal = journal
+
+        with (
+            patch.object(
+                self.worker.workflow, "prepare_label", return_value=self.prepared
+            ),
+            patch(
+                "shippy_gui.workers.shipment_worker.print_image",
+                side_effect=RuntimeError("printer offline"),
+            ),
+        ):
+            self.worker.run()
+
+        self.assertEqual(journal.pending(), [])
+
+    def test_failed_refund_keeps_the_journal_record(self):
+        """If the refund did not go through, the money is still outstanding."""
+        journal = PendingShipmentJournal(
+            os.path.join(self._tempdir.name, "pending.json")
+        )
+        self.worker.journal = journal
+        self.shipment_service.refund_shipment.side_effect = RuntimeError("no network")
+
+        with (
+            patch.object(
+                self.worker.workflow, "prepare_label", return_value=self.prepared
+            ),
+            patch(
+                "shippy_gui.workers.shipment_worker.print_image",
+                side_effect=RuntimeError("printer offline"),
+            ),
+        ):
+            self.worker.run()
+
+        self.assertEqual(
+            [entry.shipment_id for entry in journal.pending()], ["shp_123"]
+        )
 
     def test_refund_policy_is_bound_to_the_buying_service(self):
         """A later service swap must not change who the refund goes through."""

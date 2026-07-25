@@ -5,6 +5,7 @@ from typing import Optional
 from PySide6.QtCore import QThread, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
+from shippy_gui.core.pending_shipments import PendingShipmentJournal
 from shippy_gui.core.refunds import RefundPolicy
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.core.shipment_workflow import (
@@ -44,6 +45,7 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
         printer_name: str,
         logo_path: Optional[str] = None,
         use_dialog: bool = False,
+        journal: Optional[PendingShipmentJournal] = None,
     ):
         """Initialize the shipment worker.
 
@@ -69,6 +71,7 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
         )
         self.printer_name = printer_name
         self.use_dialog = use_dialog
+        self.journal = journal
         self.shipment = None
 
     def run(self):
@@ -84,12 +87,16 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
                 # Postage was already bought before this failed; refund it
                 # rather than reporting a failure the operator would ignore.
                 self.shipment = error.shipment
+                self._record_pending(error.shipment)
                 self._refund(error.shipment, str(error))
                 return
             self.error.emit(f"Shipment creation failed: {error}")
             return
 
         self.shipment = prepared.shipment
+        # Money has been spent. Record it before anything that could crash, so
+        # an interrupted run leaves a trail to reconcile at next startup.
+        self._record_pending(prepared.shipment)
 
         if self.use_dialog:
             self.label_ready.emit(prepared.image, self.printer_name, prepared.shipment)
@@ -105,10 +112,26 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
             self._refund(prepared.shipment, f"Unexpected printing error: {error}")
             return
 
+        self._resolve_pending(prepared.shipment)
         self.success.emit(
             "Label printed successfully! "
             f"Tracking: {prepared.shipment.tracking_code}"
         )
+
+    def _record_pending(self, shipment) -> None:
+        """Note bought postage whose outcome is not yet known."""
+        if self.journal is None:
+            return
+        self.journal.record(
+            getattr(shipment, "id", ""),
+            tracking_code=getattr(shipment, "tracking_code", None),
+        )
+
+    def _resolve_pending(self, shipment) -> None:
+        """Drop a shipment that is now confirmed printed or refunded."""
+        if self.journal is None:
+            return
+        self.journal.clear(getattr(shipment, "id", ""))
 
     def _refund(self, shipment, reason: str) -> None:
         """Refund a shipment that failed to print.
@@ -120,4 +143,6 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
         """
         self.progress.emit("Requesting refund...")
         outcome = self.refund_policy.refund(shipment, reason)
+        if outcome.refunded:
+            self._resolve_pending(shipment)
         self.refunded.emit(outcome)

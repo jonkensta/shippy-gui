@@ -22,6 +22,7 @@ from shippy_gui.core.constants import (
     StatusLevel,
 )
 from shippy_gui.core.models import AutocompletePrediction, Config
+from shippy_gui.core.pending_shipments import PendingShipmentJournal
 from shippy_gui.core.refunds import RefundOutcome, RefundPolicy
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.printing.models import PrintDialogResult
@@ -47,6 +48,7 @@ class ShippingServices:
     shipment_service: Optional[ShipmentService] = None
     address_completer: Optional[GoogleMapsCompleter] = None
     logo_path: Optional[str] = None
+    journal: Optional[PendingShipmentJournal] = None
 
 
 class ShippingStatusPresenter:
@@ -158,9 +160,11 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
     via :meth:`present_refund_outcome`; the print-dialog path applies it here,
     in :meth:`refund_shipment`, because the dialog needs the UI thread.
 
-    Known limitation: because the dialog cannot run off the UI thread, a
-    shipment whose label reached the dialog is refunded only if the
-    application lives long enough to process the dialog result.
+    The dialog cannot run off the UI thread, so a shipment handed to it is
+    resolved only while the app is alive. That gap is covered durably rather
+    than in memory: the worker records the purchase in a
+    :class:`PendingShipmentJournal` before the hand-off, and anything still
+    recorded at the next startup is reconciled with the operator.
     """
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -218,6 +222,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             printer_name=self._shipment_controls.printer_name,
             logo_path=self._services.logo_path,
             use_dialog=use_dialog,
+            journal=self._services.journal,
         )
 
         self.worker.progress.connect(
@@ -241,6 +246,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             image, self._parent_widget, preferred_printer_name=printer_name
         )
         if result is PrintDialogResult.PRINTED:
+            self._resolve_pending(shipment)
             self._on_shipment_success(
                 f"Label printed! Tracking: {shipment.tracking_code}"
             )
@@ -272,7 +278,16 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             return
 
         self._status_presenter.set_status("Requesting refund...", StatusLevel.WARNING)
-        self.present_refund_outcome(self._refund_policy.refund(shipment, reason))
+        outcome = self._refund_policy.refund(shipment, reason)
+        if outcome.refunded:
+            self._resolve_pending(shipment)
+        self.present_refund_outcome(outcome)
+
+    def _resolve_pending(self, shipment) -> None:
+        """Drop a shipment now confirmed printed or refunded."""
+        journal = self._services.journal
+        if journal is not None:
+            journal.clear(getattr(shipment, "id", ""))
 
     def present_refund_outcome(self, outcome: RefundOutcome) -> None:
         """Report the result of an already-attempted refund."""

@@ -43,6 +43,10 @@ class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
 
+        # Postage bought in a previous run that never reached a printer is
+        # money sitting idle; settle it before the operator starts shipping.
+        self.shipping_tab.reconcile_pending_shipments()
+
     def closeEvent(self, event):  # pylint: disable=invalid-name  # Qt override
         """Wait for background work before tearing the window down."""
         self.shipping_tab.wait_for_background_work()
