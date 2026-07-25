@@ -83,6 +83,35 @@ class SettingsDialogSaveTests(unittest.TestCase):
         self.assertEqual(saved.parcel.width, 8.5)
         self.assertEqual(saved.parcel.height, 3.0)
 
+    def test_return_address_round_trips_through_the_shared_form(self):
+        dialog = SettingsDialog(self.config_path)
+        self.assertEqual(
+            dialog.return_address_form.name_input.text(), "Inside Books Project"
+        )
+        self.assertEqual(dialog.return_address_form.city_input.text(), "Austin")
+
+        dialog.return_address_form.street1_input.setText("827 W 12th St")
+        dialog.return_address_form.city_input.setText("Round Rock")
+
+        with patch("shippy_gui.settings_dialog.QMessageBox.critical") as mock_critical:
+            dialog._save_config()
+
+        mock_critical.assert_not_called()
+        saved = load_config(self.config_path)
+        self.assertEqual(saved.return_address.city, "Round Rock")
+        # The return address form hides company; a blank must not reach EasyPost.
+        self.assertIsNone(saved.return_address.company)
+        self.assertNotIn("company", saved.return_address.to_easypost_dict())
+
+    def test_blank_required_return_field_is_reported(self):
+        dialog = SettingsDialog(self.config_path)
+        dialog.return_address_form.name_input.setText("")
+
+        with patch("shippy_gui.settings_dialog.QMessageBox.critical") as mock_critical:
+            dialog._save_config()
+
+        mock_critical.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

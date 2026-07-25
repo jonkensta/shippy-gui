@@ -25,7 +25,8 @@ from shippy_gui.core.constants import (
     WEIGHT_MAX_LBS,
     WEIGHT_MIN_LBS,
 )
-from shippy_gui.core.models import Config
+from shippy_gui.core.models import Config, ReturnAddressConfig
+from shippy_gui.widgets.address_form import AddressForm
 
 
 class SettingsDialog(
@@ -87,19 +88,13 @@ class SettingsDialog(
 
         # Return Address section
         return_addr_group = QGroupBox("Return Address")
-        return_addr_layout = QFormLayout()
-        self.return_name_input = QLineEdit()
-        self.return_street1_input = QLineEdit()
-        self.return_street2_input = QLineEdit()
-        self.return_city_input = QLineEdit()
-        self.return_state_input = QLineEdit()
-        self.return_zipcode_input = QLineEdit()
-        return_addr_layout.addRow("Name:", self.return_name_input)
-        return_addr_layout.addRow("Street 1:", self.return_street1_input)
-        return_addr_layout.addRow("Street 2:", self.return_street2_input)
-        return_addr_layout.addRow("City:", self.return_city_input)
-        return_addr_layout.addRow("State:", self.return_state_input)
-        return_addr_layout.addRow("ZIP Code:", self.return_zipcode_input)
+        return_addr_layout = QVBoxLayout()
+        self.return_address_form = AddressForm(
+            include_company=False,
+            subject="return",
+            output_model=ReturnAddressConfig,
+        )
+        return_addr_layout.addWidget(self.return_address_form)
         return_addr_group.setLayout(return_addr_layout)
         main_layout.addWidget(return_addr_group)
 
@@ -163,12 +158,7 @@ class SettingsDialog(
         if config.ibp:
             self.ibp_url_input.setText(str(config.ibp.url) if config.ibp.url else "")
             self.ibp_key_input.setText(config.ibp.apikey or "")
-        self.return_name_input.setText(config.return_address.name)
-        self.return_street1_input.setText(config.return_address.street1)
-        self.return_street2_input.setText(config.return_address.street2 or "")
-        self.return_city_input.setText(config.return_address.city)
-        self.return_state_input.setText(config.return_address.state)
-        self.return_zipcode_input.setText(config.return_address.zipcode)
+        self.return_address_form.set_address(config.return_address)
         self.font_size_input.setValue(config.get_font_size())
         self.default_weight_input.setValue(config.get_default_weight())
         self.log_file_input.setText(config.ui.log_file if config.ui else "")
@@ -188,14 +178,7 @@ class SettingsDialog(
             "googlemaps": {
                 "apikey": self.gmaps_key_input.text().strip(),
             },
-            "return_address": {
-                "name": self.return_name_input.text().strip(),
-                "street1": self.return_street1_input.text().strip(),
-                "street2": self.return_street2_input.text().strip(),
-                "city": self.return_city_input.text().strip(),
-                "state": self.return_state_input.text().strip(),
-                "zipcode": self.return_zipcode_input.text().strip(),
-            },
+            "return_address": self.return_address_form.get_values(),
         }
 
         # Both IBP fields are optional. An empty URL must be omitted rather than

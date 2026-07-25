@@ -64,6 +64,14 @@ class AddressBase(BaseModel):
             raise ValueError("Required address fields cannot be empty")
         return v
 
+    @field_validator("company", mode="before")
+    @classmethod
+    def normalize_blank_company(cls, v):
+        """Treat a blank company as absent so it is omitted from EasyPost."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     def to_easypost_dict(self) -> dict:
         """Convert to EasyPost address dictionary."""
         data = self.model_dump(exclude_none=True)

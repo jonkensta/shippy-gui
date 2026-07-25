@@ -38,7 +38,7 @@
 
 ## Validation
 
-- There is no dedicated test suite in the repository today.
+- Run the test suite with `QT_QPA_PLATFORM=offscreen uv run python -m unittest discover -s tests`.
 - For code changes, run targeted validation that matches the area you touched.
 - Use import or startup checks for Python modules you changed.
 - Run an application launch smoke check when changing UI or startup code.
