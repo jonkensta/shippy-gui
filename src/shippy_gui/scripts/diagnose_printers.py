@@ -13,6 +13,8 @@ Usage:
 import re
 import sys
 
+from shippy_gui.printing.backends.windows import WindowsPrinterBackend
+
 VID_PID_PATTERN = re.compile(r"VID_([0-9A-Fa-f]{4}).*PID_([0-9A-Fa-f]{4})")
 
 
@@ -118,16 +120,30 @@ def _print_matching_results(win32print, conn) -> None:
     print("=" * 60)
     print("SHIPPY-GUI MATCHING RESULTS")
     print("=" * 60)
-    usb_ids = _get_present_usb_printer_ids(conn)
-    print(f"USB printer VID:PIDs seen by shippy-gui: {usb_ids or '(none)'}")
+    device_ids = _get_present_usb_device_ids(conn)
+    print(f"Connected USB devices seen by shippy-gui: {len(device_ids)}")
+    for device_id in sorted(device_ids):
+        print(f"    {device_id!r}")
     print()
     printer_info = win32print.EnumPrinters(
         win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
     )
     for name in [p[2] for p in printer_info]:
-        matched = any(_printer_name_matches_usb_id(name, uid) for uid in usb_ids)
-        verdict = "MATCH (would appear in dropdown)" if matched else "no match"
-        print(f"  {name!r} -> {verdict}")
+        vid_pid, serial = WindowsPrinterBackend.parse_name_identifier(name)
+        keys = WindowsPrinterBackend.matching_device_keys(name, device_ids)
+        if vid_pid:
+            identifier = f"VID:PID {vid_pid} (shared by every unit of this model)"
+        elif serial:
+            identifier = f"serial {serial} (unique to one unit)"
+        else:
+            identifier = "no USB identifier in the name"
+        verdict = "MATCH (would appear in dropdown)" if keys else "no match"
+        print(f"  {name!r}")
+        print(f"      identifier: {identifier}")
+        print(f"      verdict:    {verdict}")
+        if keys:
+            for key_vid, key_pid, tail in sorted(keys):
+                print(f"      device:     {key_vid}:{key_pid} instance {tail}")
 
 
 def _extract_vid_pid(device_id: str):
@@ -139,12 +155,16 @@ def _extract_vid_pid(device_id: str):
     return f"{vid.upper()}:{pid.upper()}"
 
 
-def _get_present_usb_printer_ids(conn) -> set[str]:
-    """Return VID:PID values for USB printers that pass shippy-gui's WMI filters."""
-    usb_ids: set[str] = set()
+def _get_present_usb_device_ids(conn) -> set[str]:
+    """Return device-instance IDs for USB devices passing shippy-gui's filters.
+
+    Mirrors ``WindowsPrinterBackend._get_present_usb_device_ids`` so the
+    diagnosis reflects what the app itself would see.
+    """
+    device_ids: set[str] = set()
     for entity in conn.Win32_PnPEntity():
         device_id = getattr(entity, "DeviceID", "") or ""
-        if not device_id.startswith("USB"):
+        if not device_id.upper().startswith("USB"):
             continue
         status = (getattr(entity, "Status", "") or "").lower()
         if status and status not in {"ok", "degraded"}:
@@ -152,22 +172,8 @@ def _get_present_usb_printer_ids(conn) -> set[str]:
         error_code = getattr(entity, "ConfigManagerErrorCode", 0)
         if error_code not in (None, 0):
             continue
-        vid_pid = _extract_vid_pid(device_id)
-        if vid_pid:
-            usb_ids.add(vid_pid.upper())
-    return usb_ids
-
-
-def _printer_name_matches_usb_id(printer_name: str, usb_id: str) -> bool:
-    """Return True when printer name ends with the expected VID:PID suffix."""
-    normalized = printer_name.rstrip().upper()
-    normalized_id = usb_id.strip().upper()
-    if not normalized.endswith(normalized_id):
-        return False
-    boundary_index = len(normalized) - len(normalized_id)
-    if boundary_index == 0:
-        return True
-    return normalized[boundary_index - 1] in {" ", "\t", "_"}
+        device_ids.add(device_id)
+    return device_ids
 
 
 if __name__ == "__main__":

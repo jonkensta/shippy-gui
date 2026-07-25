@@ -14,6 +14,7 @@ from shippy_gui.core.config import (
 )
 from shippy_gui.core.logging import configure_logging
 from shippy_gui.core.font import apply_font_size
+from shippy_gui.dialogs import show_error
 from shippy_gui.main_window import MainWindow
 from shippy_gui.settings_dialog import SettingsDialog
 
@@ -71,11 +72,7 @@ def _load_required_config(config_path: str):
 
 def _show_config_error(message: str) -> None:
     """Display a blocking configuration error."""
-    from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module,import-outside-toplevel
-        QMessageBox,
-    )
-
-    QMessageBox.critical(None, "Configuration Error", message)
+    show_error(None, "Configuration Error", message)
 
 
 def _run_settings_dialog(config_path: str) -> bool:

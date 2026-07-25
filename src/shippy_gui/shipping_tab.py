@@ -1,8 +1,9 @@
 """Unified shipping tab with manual address entry."""
 
-# pylint: disable=duplicate-code  # Intentional patterns shared with settings_dialog
-
+import logging
+import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
@@ -13,15 +14,23 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QGroupBox,
     QLineEdit,
     QLabel,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.config_manager import ConfigManager
+from shippy_gui.core.pending_shipments import (
+    PendingShipmentJournal,
+    journal_path_for,
+)
+from shippy_gui.core.refunds import RefundPolicy
 from shippy_gui.core.services import ShipmentService
+from shippy_gui.dialogs import show_config_error, show_error
 from shippy_gui.shipping_coordinators import (
     AddressLookupCoordinator,
     ShipmentFlowCoordinator,
+    ShippingServices,
     ShippingStatusPresenter,
 )
 from shippy_gui.widgets.autocomplete import (
@@ -31,34 +40,27 @@ from shippy_gui.widgets.autocomplete import (
 from shippy_gui.widgets.address_form import AddressForm
 from shippy_gui.widgets.shipment_controls import ShipmentControls
 
+logger = logging.getLogger(__name__)
+
 
 class ShippingTab(QWidget):
     """Tab for unified shipping with address lookup."""
 
-    # pylint: disable=too-many-instance-attributes
+    # pylint: disable=too-many-instance-attributes  # Widgets plus their coordinators.
 
     def __init__(self, config_path: Optional[str] = None, parent=None):
         """Initialize the shipping tab."""
         super().__init__(parent)
         self._config_manager = ConfigManager(config_path)
+        self._services = ShippingServices(
+            logo_path=self._resolve_logo_path(),
+            journal=PendingShipmentJournal(
+                journal_path_for(self._config_manager.config_path)
+            ),
+        )
 
-        self.gmaps: Optional[googlemaps.Client] = None
-        self.address_parser: Optional[AddressParser] = None
-        self.shipment_service: Optional[ShipmentService] = None
-        self.logo_path: Optional[str] = None
-
-        # UI Components
-        self.address_search_input: Optional[QLineEdit] = None
-        self.address_form: Optional[AddressForm] = None
-        self.address_completer: Optional[GoogleMapsCompleter] = None
-        self.shipment_controls: Optional[ShipmentControls] = None
-        self.status_label: Optional[QLabel] = None
-        self.status_presenter: Optional[ShippingStatusPresenter] = None
-        self.address_lookup: Optional[AddressLookupCoordinator] = None
-        self.shipment_flow: Optional[ShipmentFlowCoordinator] = None
-
-        self._init_api_clients()
-        self._load_logo()
+        self._load_config()
+        self._build_services()
         self._init_ui()
         self._init_coordinators()
         self._setup_autocomplete()
@@ -73,54 +75,212 @@ class ShippingTab(QWidget):
         """Get the config file path."""
         return self._config_manager.config_path
 
-    def _init_api_clients(self):
-        """Load configuration and initialize API clients."""
-        if not self._config_manager.load(parent_widget=self):
-            return
+    @property
+    def gmaps(self) -> Optional[googlemaps.Client]:
+        """Get the active Google Maps client."""
+        return self._services.gmaps
 
+    @property
+    def address_parser(self) -> Optional[AddressParser]:
+        """Get the active address parser."""
+        return self._services.address_parser
+
+    @property
+    def shipment_service(self) -> Optional[ShipmentService]:
+        """Get the active shipment service."""
+        return self._services.shipment_service
+
+    @property
+    def address_completer(self) -> Optional[GoogleMapsCompleter]:
+        """Get the active address autocompleter."""
+        return self._services.address_completer
+
+    @property
+    def logo_path(self) -> Optional[str]:
+        """Get the resolved logo overlay path."""
+        return self._services.logo_path
+
+    def _load_config(self) -> bool:
+        """Load configuration, presenting any failure."""
+        result = self._config_manager.load()
+        if not result.ok:
+            show_config_error(self, result)
+            return False
+        return True
+
+    def _build_services(self) -> bool:
+        """(Re)create the API clients that depend on configuration.
+
+        Everything is constructed before anything is published to the shared
+        holder, so a failure part way through cannot leave the coordinators
+        holding a new config alongside a stale shipment service.
+        """
         config = self._config_manager.config
         if config is None:
-            return
+            return False
 
-        # Initialize Google Maps client
-        self.gmaps = googlemaps.Client(key=config.googlemaps.apikey)
-        self.address_parser = AddressParser(self.gmaps)
+        try:
+            gmaps = googlemaps.Client(key=config.googlemaps.apikey)
+            address_parser = AddressParser(gmaps)
+            shipment_service = ShipmentService(config.easypost.apikey, config.parcel)
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            show_error(
+                self,
+                "Service Error",
+                f"Could not initialize API clients:\n\n{error}",
+            )
+            return False
 
-        # Initialize Shipment Service
-        self.shipment_service = ShipmentService(config.easypost.apikey, config.parcel)
+        self._services.config = config
+        self._services.gmaps = gmaps
+        self._services.address_parser = address_parser
+        self._services.shipment_service = shipment_service
+        return True
 
     def reload_config(self) -> bool:
-        """Reload runtime configuration and recreate dependent services."""
+        """Reload runtime configuration and recreate dependent services.
+
+        The coordinators are not rebuilt: they read through the shared
+        ShippingServices holder, which is rewritten in place here.
+        """
+        previous_config = self.config
         previous_default_weight = (
-            self.config.get_default_weight() if self.config else None
+            previous_config.get_default_weight() if previous_config else None
         )
-        if not self._config_manager.load(parent_widget=self):
+        if not self._load_config():
+            return False
+        if not self._build_services():
+            # Roll back, so `config` never reports settings that no live
+            # service was actually built from.
+            self._config_manager.restore(previous_config)
             return False
 
         config = self._config_manager.config
-        if config is None:
-            return False
-
-        self.gmaps = googlemaps.Client(key=config.googlemaps.apikey)
-        self.address_parser = AddressParser(self.gmaps)
-        self.shipment_service = ShipmentService(config.easypost.apikey, config.parcel)
-
         if (
-            self.shipment_controls
+            config is not None
             and previous_default_weight is not None
             and self.shipment_controls.weight_lbs == previous_default_weight
         ):
             self.shipment_controls.weight_input.setValue(config.get_default_weight())
 
         self._setup_autocomplete()
-
         return True
 
-    def _load_logo(self):
-        """Load logo image if available."""
-        logo_path = Path(__file__).parent.parent / "assets" / "logo.jpg"
-        if logo_path.exists():
-            self.logo_path = str(logo_path)
+    def reconcile_pending_shipments(self) -> None:
+        """Resolve postage bought in a previous run that never got an outcome.
+
+        The app cannot distinguish "crashed before printing" from "printed,
+        then crashed", and refunding a label that was actually printed and
+        mailed is worse than the cost of the postage. So the operator decides.
+        """
+        journal = self._services.journal
+        shipment_service = self._services.shipment_service
+        if journal is None or shipment_service is None:
+            return
+
+        pending = journal.pending()
+
+        # pending() quarantines an unusable journal; that may have hidden
+        # shipments, so the operator has to hear about it.
+        if os.path.exists(journal.corrupt_path):
+            show_error(
+                self,
+                "Unreadable Shipment Record",
+                "Part of the record of unfinished shipments could not be read. "
+                f"A copy was saved to:\n\n{journal.corrupt_path}\n\n"
+                "Please check EasyPost for recent shipments that were never "
+                "printed and refund them manually.",
+            )
+            try:
+                os.replace(journal.corrupt_path, f"{journal.corrupt_path}.reported")
+            except OSError:
+                logger.warning("Could not mark corrupt journal as reported")
+
+        if not pending:
+            return
+
+        described = "\n".join(
+            f"  - {entry.shipment_id}"
+            + (f" (tracking {entry.tracking_code})" if entry.tracking_code else "")
+            for entry in pending
+        )
+        prompt = QMessageBox(self)
+        prompt.setWindowTitle("Unfinished Shipment")
+        prompt.setIcon(QMessageBox.Icon.Question)
+        prompt.setText(
+            f"{len(pending)} shipment(s) had postage bought last time but were "
+            "never confirmed printed:\n\n"
+            f"{described}\n\n"
+            "Did these labels fail to print?"
+        )
+        prompt.setInformativeText(
+            "Refund them - no usable label came out.\n"
+            "They printed - keep the postage; refunding a label already used "
+            "on a package would leave it without valid postage.\n"
+            "Decide later - ask again next time."
+        )
+        refund_button = prompt.addButton(
+            "Refund them", QMessageBox.ButtonRole.DestructiveRole
+        )
+        printed_button = prompt.addButton(
+            "They printed", QMessageBox.ButtonRole.AcceptRole
+        )
+        later_button = prompt.addButton(
+            "Decide later", QMessageBox.ButtonRole.RejectRole
+        )
+        # Dismissing the dialog must never destroy the trail, so Escape and the
+        # window close both land on "decide later".
+        prompt.setDefaultButton(later_button)
+        prompt.setEscapeButton(later_button)
+        prompt.exec()
+        clicked = prompt.clickedButton()
+
+        if clicked is printed_button:
+            for entry in pending:
+                journal.clear(entry.shipment_id)
+            return
+        if clicked is not refund_button:
+            # Deliberately keep every entry so the question returns next start.
+            return
+
+        policy = RefundPolicy(shipment_service)
+        failures = []
+        for entry in pending:
+            outcome = policy.refund(
+                SimpleNamespace(id=entry.shipment_id), "Unfinished shipment"
+            )
+            if outcome.refunded:
+                journal.clear(entry.shipment_id)
+            else:
+                failures.append(f"{entry.shipment_id}: {outcome.error}")
+
+        if failures:
+            show_error(
+                self,
+                "Refund Error",
+                "Some shipments could not be refunded and are still recorded:\n\n"
+                + "\n".join(failures),
+            )
+
+    def wait_for_background_work(self) -> None:
+        """Let in-flight threads finish before the tab goes away.
+
+        Destroying a running QThread aborts the process, and for a shipment
+        that would strand postage between purchase and refund.
+        """
+        self.shipment_flow.wait_for_worker()
+        completer = self._services.address_completer
+        if completer is not None:
+            completer.wait_for_workers()
+
+    @staticmethod
+    def _resolve_logo_path() -> Optional[str]:
+        """Resolve the bundled logo image path if it is available.
+
+        The assets directory sits inside the package, next to this module.
+        """
+        logo_path = Path(__file__).parent / "assets" / "logo.jpg"
+        return str(logo_path) if logo_path.exists() else None
 
     def _init_ui(self):
         """Initialize the user interface."""
@@ -162,22 +322,13 @@ class ShippingTab(QWidget):
 
     def _init_coordinators(self):
         """Create helper objects that own status and workflow behavior."""
-        if (
-            not self.address_search_input
-            or not self.address_form
-            or not self.shipment_controls
-            or not self.status_label
-        ):
-            return
-
         self.status_presenter = ShippingStatusPresenter(self.status_label)
         self.address_lookup = AddressLookupCoordinator(
             parent_widget=self,
             search_input=self.address_search_input,
             address_form=self.address_form,
             status_presenter=self.status_presenter,
-            get_address_parser=lambda: self.address_parser,
-            get_address_completer=lambda: self.address_completer,
+            services=self._services,
         )
         self.shipment_flow = ShipmentFlowCoordinator(
             parent_widget=self,
@@ -185,32 +336,31 @@ class ShippingTab(QWidget):
             address_form=self.address_form,
             shipment_controls=self.shipment_controls,
             status_presenter=self.status_presenter,
-            get_config=lambda: self.config,
-            get_shipment_service=lambda: self.shipment_service,
-            get_logo_path=lambda: self.logo_path,
+            services=self._services,
         )
         self.shipment_controls.create_requested.connect(self.shipment_flow.create_label)
 
     def _setup_autocomplete(self):
         """Set up Google Maps autocomplete on address search field."""
-        if not self.gmaps or not self.address_search_input or not self.address_lookup:
+        if not self._services.gmaps:
             return
 
-        if self.address_completer:
+        completer = self._services.address_completer
+        if completer:
             try:
                 self.address_search_input.textChanged.disconnect(
-                    self.address_completer.update_completions
+                    completer.update_completions
                 )
             except (RuntimeError, TypeError):
                 pass
             try:
-                self.address_completer.activated.disconnect(
-                    self.address_lookup.load_address
-                )
+                completer.activated.disconnect(self.address_lookup.load_address)
             except (RuntimeError, TypeError):
                 pass
 
-        self.address_completer = setup_google_maps_autocomplete(
-            self.address_search_input, self.gmaps, debounce_delay=500
+        self._services.address_completer = setup_google_maps_autocomplete(
+            self.address_search_input, self._services.gmaps, debounce_delay=500
         )
-        self.address_completer.activated.connect(self.address_lookup.load_address)
+        self._services.address_completer.activated.connect(
+            self.address_lookup.load_address
+        )

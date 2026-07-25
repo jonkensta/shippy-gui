@@ -222,16 +222,12 @@ class AddressComponentParser:  # pylint: disable=too-few-public-methods
             )
 
 
-class AddressParser:
-    """Compatibility facade combining Google lookup and component parsing."""
+class AddressParser:  # pylint: disable=too-few-public-methods
+    """Callable facade combining Google lookup and component parsing."""
 
     def __init__(self, gmaps: googlemaps.Client):
         self.lookup = GoogleAddressLookup(gmaps)
         self.component_parser = AddressComponentParser()
-
-    def parse_address_components(self, address_components) -> ParsedAddress:
-        """Parse Google address components into the app's address model."""
-        return self.component_parser.parse(address_components)
 
     def __call__(
         self, selected_address: str | AutocompletePrediction

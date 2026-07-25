@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QApplication
 
 from shippy_gui.main_window import MainWindow
@@ -14,6 +15,16 @@ class MainWindowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    @patch.object(MainWindow, "_init_ui", lambda self: None)
+    def test_close_waits_for_background_work(self):
+        """Closing must not destroy a running shipment thread."""
+        window = MainWindow(config_path="config.ini")
+        window.shipping_tab = Mock()
+
+        window.closeEvent(QCloseEvent())
+
+        window.shipping_tab.wait_for_background_work.assert_called_once_with()
 
     @patch("shippy_gui.main_window.SettingsDialog")
     @patch.object(MainWindow, "_apply_font_from_config")

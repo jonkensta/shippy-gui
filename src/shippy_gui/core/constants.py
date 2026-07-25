@@ -1,5 +1,7 @@
 """Application-wide constants."""
 
+from enum import Enum
+
 # ============================================================================
 # Printing Constants
 # ============================================================================
@@ -49,11 +51,21 @@ STATUS_COLOR_SUCCESS = "#008800"  # Green
 STATUS_COLOR_WARNING = "#FF8800"  # Orange
 STATUS_COLOR_ERROR = "#CC0000"  # Red
 
+
+class StatusLevel(str, Enum):
+    """Severity of a status message shown in the shipping tab."""
+
+    INFO = "info"
+    SUCCESS = "success"
+    WARNING = "warning"
+    ERROR = "error"
+
+
 STATUS_COLORS = {
-    "info": STATUS_COLOR_INFO,
-    "success": STATUS_COLOR_SUCCESS,
-    "warning": STATUS_COLOR_WARNING,
-    "error": STATUS_COLOR_ERROR,
+    StatusLevel.INFO: STATUS_COLOR_INFO,
+    StatusLevel.SUCCESS: STATUS_COLOR_SUCCESS,
+    StatusLevel.WARNING: STATUS_COLOR_WARNING,
+    StatusLevel.ERROR: STATUS_COLOR_ERROR,
 }
 
 # Default font size
@@ -93,3 +105,16 @@ DEFAULT_WEIGHT_LBS = 3
 
 # Ounces per pound for weight conversion
 OUNCES_PER_POUND = 16
+
+
+# ============================================================================
+# Shutdown Constants
+# ============================================================================
+
+# How long to let an in-flight shipment finish when the window closes. A
+# shipment interrupted between buying postage and refunding it strands money,
+# so this is generous.
+SHIPMENT_SHUTDOWN_WAIT_MS = 30_000
+
+# Address lookups only cost a little latency, so they get far less grace.
+LOOKUP_SHUTDOWN_WAIT_MS = 3_000

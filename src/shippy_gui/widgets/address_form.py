@@ -1,25 +1,34 @@
 """Address form widget."""
 
-from typing import Optional, Union
+from typing import Optional, Type, Union
+
 from PySide6.QtWidgets import QWidget, QFormLayout, QLineEdit  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
-from shippy_gui.core.models import RecipientAddress, ParsedAddress
+from shippy_gui.core.models import AddressBase, ParsedAddress, RecipientAddress
 
 
-class AddressForm(QWidget):
-    """Widget for entering recipient address details."""
+class AddressForm(QWidget):  # pylint: disable=too-many-instance-attributes
+    """Widget for entering address details.
 
+    Used for both the recipient address and, with ``include_company=False``,
+    the return address in the settings dialog. ReturnAddressConfig and
+    RecipientAddress are the same shape, so one widget serves both.
+    """
+
+    # Widget attribute name -> label fragment used in "Please enter ..." errors.
     REQUIRED_FIELDS = [
-        ("Please enter recipient name", "name_input"),
-        ("Please enter street address", "street1_input"),
-        ("Please enter city", "city_input"),
-        ("Please enter state", "state_input"),
-        ("Please enter ZIP code", "zipcode_input"),
+        ("name_input", "{subject} name"),
+        ("street1_input", "street address"),
+        ("city_input", "city"),
+        ("state_input", "state"),
+        ("zipcode_input", "ZIP code"),
     ]
     REQUIRED_ADDRESS_KEYS = ["street1", "city", "state", "zipcode"]
 
     # Map data keys to widget attribute names
     ADDRESS_FIELD_MAP = {
+        "name": "name_input",
+        "company": "company_input",
         "street1": "street1_input",
         "street2": "street2_input",
         "city": "city_input",
@@ -27,8 +36,26 @@ class AddressForm(QWidget):
         "zipcode": "zipcode_input",
     }
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        include_company: bool = True,
+        subject: str = "recipient",
+        output_model: Type[AddressBase] = RecipientAddress,
+    ):
+        """Initialize the address form.
+
+        Args:
+            parent: Parent widget.
+            include_company: Whether to show the optional company field.
+            subject: Noun used in validation messages ("recipient", "return").
+            output_model: Model produced by :meth:`get_address`.
+        """
         super().__init__(parent)
+        self._include_company = include_company
+        self._subject = subject
+        self._output_model = output_model
         self._init_ui()
 
     def _init_ui(self):
@@ -36,14 +63,19 @@ class AddressForm(QWidget):
         self.setLayout(layout)
 
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("Recipient name")
-        self.name_input.setToolTip("Recipient's full name")
+        self.name_input.setPlaceholderText(f"{self._subject.capitalize()} name")
+        self.name_input.setToolTip(f"{self._subject.capitalize()}'s full name")
         layout.addRow("Name:", self.name_input)
 
-        self.company_input = QLineEdit()
+        # Parented to self even when unused, so it never becomes a stray
+        # top-level window.
+        self.company_input = QLineEdit(self)
         self.company_input.setPlaceholderText("Optional")
         self.company_input.setToolTip("Company or institution name (optional)")
-        layout.addRow("Company:", self.company_input)
+        if self._include_company:
+            layout.addRow("Company:", self.company_input)
+        else:
+            self.company_input.hide()
 
         self.street1_input = QLineEdit()
         self.street1_input.setToolTip("Street address line 1 (required)")
@@ -71,66 +103,65 @@ class AddressForm(QWidget):
 
     def clear(self):
         """Clear all fields."""
-        self.name_input.clear()
-        self.company_input.clear()
-        self.street1_input.clear()
-        self.street2_input.clear()
-        self.city_input.clear()
-        self.state_input.clear()
-        self.zipcode_input.clear()
+        for widget_name in self.ADDRESS_FIELD_MAP.values():
+            getattr(self, widget_name).clear()
 
-    def get_address(self) -> RecipientAddress:
-        """Get the address data as a RecipientAddress model."""
-        return RecipientAddress(
-            name=self.name_input.text().strip(),
-            company=self.company_input.text().strip() or None,
-            street1=self.street1_input.text().strip(),
-            street2=self.street2_input.text().strip() or "",
-            city=self.city_input.text().strip(),
-            state=self.state_input.text().strip(),
-            zipcode=self.zipcode_input.text().strip(),
+    def get_values(self) -> dict[str, str]:
+        """Return the stripped field values, without validating them."""
+        return {
+            key: getattr(self, widget_name).text().strip()
+            for key, widget_name in self.ADDRESS_FIELD_MAP.items()
+        }
+
+    def get_address(self) -> AddressBase:
+        """Get the address data as the configured address model."""
+        values = self.get_values()
+        return self._output_model(
+            name=values["name"],
+            company=values["company"] or None,
+            street1=values["street1"],
+            street2=values["street2"],
+            city=values["city"],
+            state=values["state"],
+            zipcode=values["zipcode"],
         )
 
-    def set_address(self, data: Union[dict, ParsedAddress]):
-        """Populate fields from a dictionary or ParsedAddress."""
-        if isinstance(data, ParsedAddress):
-            data_dict = data.model_dump(exclude_none=True)
-        else:
-            data_dict = data
+    @staticmethod
+    def _as_dict(data: Union[dict, AddressBase, ParsedAddress]) -> dict:
+        """Normalize supported address inputs into a plain dictionary."""
+        if isinstance(data, (AddressBase, ParsedAddress)):
+            return data.model_dump(exclude_none=True)
+        return data
+
+    def set_address(self, data: Union[dict, AddressBase, ParsedAddress]):
+        """Populate fields from a dictionary or address model."""
+        data_dict = self._as_dict(data)
 
         for key, widget_name in self.ADDRESS_FIELD_MAP.items():
             if key in data_dict:
-                widget = getattr(self, widget_name)
-                widget.setText(data_dict[key])
+                getattr(self, widget_name).setText(data_dict[key] or "")
 
-    def merge_address(self, data: Union[dict, ParsedAddress]):
+    def merge_address(self, data: Union[dict, AddressBase, ParsedAddress]):
         """Populate only non-empty parsed values without clearing existing fields."""
-        if isinstance(data, ParsedAddress):
-            data_dict = data.model_dump(exclude_none=True)
-        else:
-            data_dict = data
+        data_dict = self._as_dict(data)
 
         for key, widget_name in self.ADDRESS_FIELD_MAP.items():
             value = data_dict.get(key)
             if value:
-                widget = getattr(self, widget_name)
-                widget.setText(value)
+                getattr(self, widget_name).setText(value)
 
     def validate_required(self) -> Optional[str]:
         """Validate required fields and return error message if any."""
-        for message, field_name in self.REQUIRED_FIELDS:
+        for field_name, label in self.REQUIRED_FIELDS:
             field = getattr(self, field_name)
             if not field.text().strip():
-                return message
+                return f"Please enter {label.format(subject=self._subject)}"
         return None
 
     @classmethod
     def missing_required_keys(
-        cls, address_parts: Union[dict, ParsedAddress]
+        cls, address_parts: Union[dict, AddressBase, ParsedAddress]
     ) -> list[str]:
         """Return required address keys missing from parsed components."""
-        if isinstance(address_parts, ParsedAddress):
-            data_dict = address_parts.model_dump(exclude_none=True)
-        else:
-            data_dict = address_parts
+        data_dict = cls._as_dict(address_parts)
         return [key for key in cls.REQUIRED_ADDRESS_KEYS if key not in data_dict]

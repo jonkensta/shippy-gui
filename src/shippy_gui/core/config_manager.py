@@ -1,8 +1,9 @@
 """Centralized configuration management."""
 
 import configparser
+from dataclasses import dataclass
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from pydantic import ValidationError
 
@@ -11,8 +12,21 @@ from shippy_gui.core.models import Config
 
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped]
+
+@dataclass(frozen=True)
+class ConfigResult:
+    """Outcome of a configuration load or save.
+
+    Failures are reported rather than presented: this module is part of
+    ``core`` and must not depend on Qt. Callers decide how to surface them.
+    """
+
+    ok: bool
+    title: str = ""
+    message: str = ""
+
+    def __bool__(self) -> bool:
+        return self.ok
 
 
 class ConfigManager:
@@ -22,7 +36,6 @@ class ConfigManager:
     code across the application. It handles:
     - Path resolution (config.ini vs config.example.ini)
     - Loading and validating configuration
-    - Error handling with optional UI dialogs
     - Saving configuration changes
     """
 
@@ -53,54 +66,53 @@ class ConfigManager:
         """The loaded configuration, or None if not loaded."""
         return self._config
 
-    def load(self, parent_widget: Optional["QWidget"] = None) -> bool:
+    def restore(self, config: Optional[Config]) -> None:
+        """Put back a previously held configuration.
+
+        Used to roll back a load whose dependent services failed to build, so
+        callers never expose a config that nothing is actually running on.
+        """
+        self._config = config
+
+    def load(self) -> ConfigResult:
         """Load configuration from file.
 
-        Args:
-            parent_widget: Optional parent widget for error dialogs.
-                          If None, errors are logged but no dialogs shown.
-
         Returns:
-            True if configuration was loaded successfully, False otherwise.
+            A ConfigResult describing success, or the failure to present.
         """
         try:
             self._config = load_config(self._active_load_path)
-            return True
+            return ConfigResult(ok=True)
         except ValidationError as e:
-            self._handle_error(
-                "Config Validation Error",
-                f"Error loading configuration:\n\n{e}",
-                parent_widget,
+            return self._failure(
+                "Config Validation Error", f"Error loading configuration:\n\n{e}"
             )
-            return False
         except (configparser.Error, OSError) as e:
-            self._handle_error(
-                "Config Load Error",
-                f"Error reading configuration file:\n\n{e}",
-                parent_widget,
+            return self._failure(
+                "Config Load Error", f"Error reading configuration file:\n\n{e}"
             )
-            return False
         except Exception as e:  # pylint: disable=broad-exception-caught
-            self._handle_error(
+            return self._failure(
                 "Config Load Error",
                 f"Unexpected error loading configuration:\n\n{e}",
-                parent_widget,
             )
-            return False
 
-    def save(self, config: Config, parent_widget: Optional["QWidget"] = None) -> bool:
+    def save(self, config: Config) -> ConfigResult:
         """Save configuration to file.
+
+        Sections the caller does not manage (notably ``[parcel]``) are
+        preserved by seeding the parser with the file's current contents.
+        ``tests/test_settings_dialog.py`` pins that invariant.
 
         Args:
             config: The configuration to save.
-            parent_widget: Optional parent widget for error dialogs.
 
         Returns:
-            True if configuration was saved successfully, False otherwise.
+            A ConfigResult describing success, or the failure to present.
         """
         try:
             config_parser = configparser.ConfigParser()
-            # Seed with existing file content to preserve unknown sections.
+            # Seed with existing file content to preserve unmanaged sections.
             config_parser.read(self._config_path, encoding="utf-8")
 
             log_file = ""
@@ -123,45 +135,33 @@ class ConfigManager:
                 "zipcode": config.return_address.zipcode,
             }
             if config.ibp is not None:
-                config_parser["ibp"] = {
-                    "url": str(config.ibp.url) if config.ibp.url else "",
-                    "apikey": config.ibp.apikey or "",
-                }
+                # Write only the populated keys. A bare "url =" round-trips
+                # back through AnyHttpUrl and would fail to load.
+                ibp_section = {}
+                if config.ibp.url:
+                    ibp_section["url"] = str(config.ibp.url)
+                if config.ibp.apikey:
+                    ibp_section["apikey"] = config.ibp.apikey
+                config_parser["ibp"] = ibp_section
+            else:
+                # Both IBP fields were cleared; drop the section entirely so the
+                # seeded copy above does not resurrect stale credentials.
+                config_parser.remove_section("ibp")
 
             with open(self._config_path, "w", encoding="utf-8") as f:
                 config_parser.write(f)
 
             self._config = config
-            return True
+            return ConfigResult(ok=True)
         except (configparser.Error, OSError) as e:
-            self._handle_error(
-                "Save Error",
-                f"Error saving configuration:\n\n{e}",
-                parent_widget,
-            )
-            return False
+            return self._failure("Save Error", f"Error saving configuration:\n\n{e}")
         except Exception as e:  # pylint: disable=broad-exception-caught
-            self._handle_error(
-                "Save Error",
-                f"Unexpected error saving configuration:\n\n{e}",
-                parent_widget,
+            return self._failure(
+                "Save Error", f"Unexpected error saving configuration:\n\n{e}"
             )
-            return False
 
-    def _handle_error(
-        self, title: str, message: str, parent_widget: Optional["QWidget"]
-    ) -> None:
-        """Handle an error by logging and optionally showing a dialog.
-
-        Args:
-            title: Error dialog title.
-            message: Error message.
-            parent_widget: Optional parent widget for dialog.
-        """
+    @staticmethod
+    def _failure(title: str, message: str) -> ConfigResult:
+        """Log a configuration failure and describe it for the caller."""
         logger.error("%s: %s", title, message)
-        if parent_widget is not None:
-            from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module,import-outside-toplevel
-                QMessageBox,
-            )
-
-            QMessageBox.critical(parent_widget, title, message)
+        return ConfigResult(ok=False, title=title, message=message)

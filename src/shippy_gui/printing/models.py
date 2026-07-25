@@ -11,11 +11,25 @@ class PrinterTransport(str, Enum):
     USB = "usb"
 
 
+class PrintDialogResult(str, Enum):
+    """Outcome of showing the system print dialog."""
+
+    PRINTED = "printed"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+
 @dataclass(frozen=True)
 class PrinterInfo:
-    """Printer metadata used for discovery and UI selection."""
+    """Printer metadata used for discovery and UI selection.
+
+    ``usb_id`` (VID:PID) is shared by every unit of a model, so it cannot tell
+    two identical printers apart. ``serial`` is unique per physical unit and is
+    what disambiguates them.
+    """
 
     system_name: str
     is_default: bool = False
     transport: Optional[PrinterTransport] = None
     usb_id: Optional[str] = None
+    serial: Optional[str] = None

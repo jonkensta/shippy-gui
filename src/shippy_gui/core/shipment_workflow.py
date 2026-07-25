@@ -1,7 +1,13 @@
-"""Pure shipment workflow orchestration."""
+"""Shipment creation and label preparation.
+
+This module is deliberately free of Qt and of printing concerns: importing it
+must not pull in a GUI toolkit. Printing is performed by ``workers`` (off the
+UI thread) and refunds are owned by ``shipping_coordinators``, so that the
+"refund a shipment whose label did not print" policy exists in exactly one
+place regardless of which print path was taken.
+"""
 
 from dataclasses import dataclass
-from enum import Enum
 import os
 from typing import Any, Callable, Optional
 
@@ -12,29 +18,28 @@ from shippy_gui.core.constants import LOGO_PASTE_X, LOGO_PASTE_Y, OUNCES_PER_POU
 from shippy_gui.core.misc import grab_png_from_url
 from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
 from shippy_gui.core.services import ShipmentService
-from shippy_gui.printing.printer_manager import print_image
 
 ProgressCallback = Callable[[str], None]
 WarningCallback = Callable[[str], None]
+PurchaseCallback = Callable[[Any], None]
 
 
-class ShipmentWorkflowStatus(str, Enum):
-    """High-level workflow result statuses."""
+class ShipmentPreparationError(Exception):
+    """Raised when a shipment could not be created or its label prepared.
 
-    READY = "ready"
-    SUCCESS = "success"
-    ERROR = "error"
+    The message describes the cause only. Callers add any user-facing framing,
+    which keeps presentation copy out of ``core``.
 
+    Attributes:
+        shipment: The purchased shipment when the failure happened *after*
+            postage was bought, otherwise None. Postage is bought before the
+            label is downloaded and stamped, so those later steps can fail with
+            money already spent - callers must refund whenever this is set.
+    """
 
-@dataclass
-class ShipmentWorkflowResult:
-    """Typed workflow result used by the worker and UI adapters."""
-
-    status: ShipmentWorkflowStatus
-    message: str
-    shipment: Optional[Any] = None
-    image: Optional[Image.Image] = None
-    refund_requested: bool = False
+    def __init__(self, message: str, shipment: Any = None):
+        super().__init__(message)
+        self.shipment = shipment
 
 
 @dataclass(frozen=True)
@@ -47,8 +52,16 @@ class ShipmentWorkflowInput:
     logo_path: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class PreparedLabel:
+    """A purchased shipment and its ready-to-print label image."""
+
+    shipment: Any
+    image: Image.Image
+
+
 class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
-    """Orchestrate shipment creation, label preparation, and quick printing."""
+    """Create a shipment and prepare its label image."""
 
     def __init__(self, shipment_service: ShipmentService):
         self.service = shipment_service
@@ -58,8 +71,22 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
         workflow_input: ShipmentWorkflowInput,
         on_progress: Optional[ProgressCallback] = None,
         on_warning: Optional[WarningCallback] = None,
-    ) -> ShipmentWorkflowResult:
-        """Create a shipment and prepare its label image."""
+        on_purchase: Optional[PurchaseCallback] = None,
+    ) -> PreparedLabel:
+        """Create a shipment, buy postage, and build the label image.
+
+        Args:
+            workflow_input: Addresses, weight, and optional logo overlay.
+            on_progress: Optional sink for progress messages.
+            on_warning: Optional sink for non-fatal warnings.
+
+        Returns:
+            The purchased shipment and its label image.
+
+        Raises:
+            ShipmentPreparationError: If the shipment or label could not be
+                prepared.
+        """
         progress = on_progress or (lambda _message: None)
         warning = on_warning or (lambda _message: None)
 
@@ -89,101 +116,33 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
             progress("Purchasing postage...")
             weight_oz = workflow_input.weight_lbs * OUNCES_PER_POUND
             shipment = self.service.buy_shipment(from_addr.id, to_addr.id, weight_oz)
+        except easypost.errors.ApiError as error:
+            raise ShipmentPreparationError(f"EasyPost API error: {error}") from error
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            raise ShipmentPreparationError(f"Unexpected error: {error}") from error
 
+        # The very next thing after money changes hands: tell the caller, so it
+        # can durably record the purchase. Everything below can fail or be
+        # killed, and the shipment still has to be recoverable.
+        if on_purchase is not None:
+            on_purchase(shipment)
+
+        # Past this point money has been spent. Every failure below has to
+        # carry the shipment so the caller can refund it.
+        try:
             progress("Downloading label...")
             label_url = shipment.postage_label.label_url
             image = grab_png_from_url(label_url)
 
             if workflow_input.logo_path and os.path.exists(workflow_input.logo_path):
                 progress("Adding logo...")
-                logo = Image.open(workflow_input.logo_path)
-                image.paste(logo, (LOGO_PASTE_X, LOGO_PASTE_Y))
-
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.READY,
-                message="Label prepared successfully",
-                shipment=shipment,
-                image=image,
-            )
-
-        except easypost.errors.ApiError as error:
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.ERROR,
-                message=f"Shipment creation failed: EasyPost API error: {error}",
-            )
+                with Image.open(workflow_input.logo_path) as logo:
+                    # Pillow clips a paste that runs off the canvas, so an
+                    # unexpectedly small label loses the logo, not the print.
+                    image.paste(logo, (LOGO_PASTE_X, LOGO_PASTE_Y))
         except Exception as error:  # pylint: disable=broad-exception-caught
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.ERROR,
-                message=f"Shipment creation failed: Unexpected error: {error}",
-            )
+            raise ShipmentPreparationError(
+                f"Label preparation failed: {error}", shipment=shipment
+            ) from error
 
-    def print_prepared_label(
-        self,
-        prepared_result: ShipmentWorkflowResult,
-        printer_name: str,
-        on_progress: Optional[ProgressCallback] = None,
-    ) -> ShipmentWorkflowResult:
-        """Print a prepared label image and request a refund on failure."""
-        progress = on_progress or (lambda _message: None)
-
-        if not prepared_result.shipment or prepared_result.image is None:
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.ERROR,
-                message="Shipment creation failed: No prepared label available.",
-            )
-
-        try:
-            progress("Printing label...")
-            print_image(prepared_result.image, printer_name)
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.SUCCESS,
-                message=(
-                    "Label printed successfully! "
-                    f"Tracking: {prepared_result.shipment.tracking_code}"
-                ),
-                shipment=prepared_result.shipment,
-                image=prepared_result.image,
-            )
-        except RuntimeError as error:
-            return self.refund_after_failure(
-                prepared_result.shipment,
-                f"Printing error: {error}",
-                on_progress=progress,
-            )
-        except Exception as error:  # pylint: disable=broad-exception-caught
-            return self.refund_after_failure(
-                prepared_result.shipment,
-                f"Unexpected error: {error}",
-                on_progress=progress,
-            )
-
-    def refund_after_failure(
-        self,
-        shipment,
-        error_message: str,
-        on_progress: Optional[ProgressCallback] = None,
-    ) -> ShipmentWorkflowResult:
-        """Request a refund for a failed shipment operation."""
-        progress = on_progress or (lambda _message: None)
-
-        try:
-            progress("Requesting refund...")
-            self.service.refund_shipment(shipment.id)
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.ERROR,
-                message=f"{error_message}. Refund requested.",
-                shipment=shipment,
-                refund_requested=True,
-            )
-        except easypost.errors.ApiError as refund_error:
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.ERROR,
-                message=f"{error_message}. Refund also failed: {refund_error}",
-                shipment=shipment,
-            )
-        except Exception as refund_error:  # pylint: disable=broad-exception-caught
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.ERROR,
-                message=f"{error_message}. Refund also failed: {refund_error}",
-                shipment=shipment,
-            )
+        return PreparedLabel(shipment=shipment, image=image)

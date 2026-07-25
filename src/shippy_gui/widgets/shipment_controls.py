@@ -25,7 +25,10 @@ class ShipmentControls(QWidget):
     PRINTER_TOOLTIP = (
         "Choose the label printer you want to use.\n"
         "This list only shows USB label printers that are plugged in and turned on.\n"
-        "The printer name must end with the USB ID, such as 20d1:7008.\n"
+        "The printer name must end with either the printer's serial number,\n"
+        "such as Q529E65K5250028, or its USB ID, such as 20d1:7008.\n"
+        "Use serial numbers when you have two printers of the same model:\n"
+        "they share a USB ID, so only the serial number tells them apart.\n"
         "If you just plugged in or turned on a printer, click Refresh.\n"
         "If no printers appear, check that the printer is plugged in, turned on, and ready."
     )
@@ -143,14 +146,6 @@ class ShipmentControls(QWidget):
         self.printer_combo.setEnabled(self._controls_enabled and self._has_printers)
         self.refresh_button.setEnabled(self._controls_enabled)
         self.create_button.setEnabled(self._controls_enabled and self._has_printers)
-
-    def reset(self):
-        """Reset controls after successful shipment.
-
-        Note: Weight is intentionally NOT reset since users often
-        ship multiple packages of the same weight in succession.
-        """
-        # Weight is preserved between shipments
 
     def validate(self) -> Optional[str]:
         """Validate controls and return error message if any."""
