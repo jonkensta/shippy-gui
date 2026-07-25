@@ -28,7 +28,17 @@ class ShipmentPreparationError(Exception):
 
     The message describes the cause only. Callers add any user-facing framing,
     which keeps presentation copy out of ``core``.
+
+    Attributes:
+        shipment: The purchased shipment when the failure happened *after*
+            postage was bought, otherwise None. Postage is bought before the
+            label is downloaded and stamped, so those later steps can fail with
+            money already spent - callers must refund whenever this is set.
     """
+
+    def __init__(self, message: str, shipment: Any = None):
+        super().__init__(message)
+        self.shipment = shipment
 
 
 @dataclass(frozen=True)
@@ -104,7 +114,14 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
             progress("Purchasing postage...")
             weight_oz = workflow_input.weight_lbs * OUNCES_PER_POUND
             shipment = self.service.buy_shipment(from_addr.id, to_addr.id, weight_oz)
+        except easypost.errors.ApiError as error:
+            raise ShipmentPreparationError(f"EasyPost API error: {error}") from error
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            raise ShipmentPreparationError(f"Unexpected error: {error}") from error
 
+        # Past this point money has been spent. Every failure below has to
+        # carry the shipment so the caller can refund it.
+        try:
             progress("Downloading label...")
             label_url = shipment.postage_label.label_url
             image = grab_png_from_url(label_url)
@@ -113,10 +130,9 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
                 progress("Adding logo...")
                 logo = Image.open(workflow_input.logo_path)
                 image.paste(logo, (LOGO_PASTE_X, LOGO_PASTE_Y))
-
-            return PreparedLabel(shipment=shipment, image=image)
-
-        except easypost.errors.ApiError as error:
-            raise ShipmentPreparationError(f"EasyPost API error: {error}") from error
         except Exception as error:  # pylint: disable=broad-exception-caught
-            raise ShipmentPreparationError(f"Unexpected error: {error}") from error
+            raise ShipmentPreparationError(
+                f"Label preparation failed: {error}", shipment=shipment
+            ) from error
+
+        return PreparedLabel(shipment=shipment, image=image)

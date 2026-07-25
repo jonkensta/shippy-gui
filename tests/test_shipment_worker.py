@@ -123,6 +123,23 @@ class ShipmentWorkerTests(unittest.TestCase):
         self.assertFalse(outcome.refunded)
         self.assertIn("no network", outcome.error)
 
+    def test_failure_after_purchase_refunds_rather_than_reporting_an_error(self):
+        """Postage bought then label download failed: money must come back."""
+        with patch.object(
+            self.worker.workflow,
+            "prepare_label",
+            side_effect=ShipmentPreparationError(
+                "Label preparation failed: network blip", shipment=self.shipment
+            ),
+        ):
+            self.worker.run()
+
+        self.shipment_service.refund_shipment.assert_called_once_with("shp_123")
+        self.assertEqual(len(self.emitted["refunded"]), 1)
+        self.assertTrue(self.emitted["refunded"][0].refunded)
+        # Must not claim nothing was bought - that would stop a manual refund.
+        self.assertEqual(self.emitted["error"], [])
+
     def test_preparation_failure_reports_error_and_does_not_refund(self):
         with patch.object(
             self.worker.workflow,

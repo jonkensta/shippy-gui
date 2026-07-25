@@ -148,9 +148,15 @@ class AddressLookupCoordinator:
 class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
     """Own label creation, worker wiring, and result presentation.
 
-    This is the sole owner of the refund policy. Both print paths - the
-    background worker print and the system print dialog - funnel their
-    failures into :meth:`refund_shipment`.
+    Refunds use one policy, :class:`RefundPolicy`, bound at purchase time so a
+    settings reload cannot redirect a refund to another EasyPost account. The
+    background print path applies it inside the worker thread and reports here
+    via :meth:`present_refund_outcome`; the print-dialog path applies it here,
+    in :meth:`refund_shipment`, because the dialog needs the UI thread.
+
+    Known limitation: because the dialog cannot run off the UI thread, a
+    shipment whose label reached the dialog is refunded only if the
+    application lives long enough to process the dialog result.
     """
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -248,6 +254,17 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         :meth:`present_refund_outcome`.
         """
         if self._refund_policy is None:
+            # Never fails silently: unrefunded postage costs real money, so an
+            # unreachable state still has to reach the operator.
+            self._status_presenter.set_status("Refund failed", StatusLevel.ERROR)
+            QMessageBox.critical(
+                self._parent_widget,
+                "Refund Error",
+                f"{reason}, but no refund could be attempted because the "
+                "shipment service is unavailable.\n\n"
+                f"Please refund shipment {getattr(shipment, 'id', 'unknown')} "
+                "manually in EasyPost.",
+            )
             return
 
         self._status_presenter.set_status("Requesting refund...", StatusLevel.WARNING)
@@ -258,6 +275,14 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         if outcome.refunded:
             self._status_presenter.set_status(
                 f"{outcome.reason}. Refunded.", StatusLevel.WARNING
+            )
+            # The label never came out, so say so in a dialog the operator has
+            # to dismiss; a status line is too easy to miss or overwrite.
+            QMessageBox.warning(
+                self._parent_widget,
+                "Label Not Printed",
+                f"{outcome.reason}.\n\nThe shipment was refunded. "
+                "Nothing was printed, so please try again.",
             )
             return
 

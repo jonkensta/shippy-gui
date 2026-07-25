@@ -66,6 +66,14 @@ class ConfigManager:
         """The loaded configuration, or None if not loaded."""
         return self._config
 
+    def restore(self, config: Optional[Config]) -> None:
+        """Put back a previously held configuration.
+
+        Used to roll back a load whose dependent services failed to build, so
+        callers never expose a config that nothing is actually running on.
+        """
+        self._config = config
+
     def load(self) -> ConfigResult:
         """Load configuration from file.
 

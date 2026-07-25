@@ -81,6 +81,12 @@ class ShippingCoordinatorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self):
+        # Modal dialogs block forever under the offscreen platform.
+        warning_patch = patch("shippy_gui.shipping_coordinators.QMessageBox.warning")
+        self.mock_warning = warning_patch.start()
+        self.addCleanup(warning_patch.stop)
+
     def test_status_presenter_updates_text_and_color(self):
         label = QLabel()
         presenter = ShippingStatusPresenter(label)
@@ -231,6 +237,21 @@ class ShippingCoordinatorTests(unittest.TestCase):
         # The refund happened in the worker thread; do not fire a second one.
         shipment_service.refund_shipment.assert_not_called()
         self.assertEqual(status_label.text(), "Printing error: offline. Refunded.")
+        # A failed print must be impossible to miss, not just a status line.
+        self.mock_warning.assert_called_once()
+
+    @patch("shippy_gui.shipping_coordinators.QMessageBox.critical")
+    def test_refund_without_a_bound_policy_is_escalated_not_silent(self, mock_critical):
+        """An unrefundable shipment must never fail quietly."""
+        coordinator, _, _, status_label = self._build_flow_coordinator(
+            ShippingServices()
+        )
+
+        coordinator.refund_shipment(Mock(id="shp_123"), "Print failed")
+
+        self.assertEqual(status_label.text(), "Refund failed")
+        mock_critical.assert_called_once()
+        self.assertIn("shp_123", mock_critical.call_args.args[2])
 
     @patch("shippy_gui.shipping_coordinators.QMessageBox.critical")
     def test_failed_refund_outcome_is_escalated(self, mock_critical):

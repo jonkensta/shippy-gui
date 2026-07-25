@@ -127,12 +127,16 @@ class ShippingTab(QWidget):
         The coordinators are not rebuilt: they read through the shared
         ShippingServices holder, which is rewritten in place here.
         """
+        previous_config = self.config
         previous_default_weight = (
-            self.config.get_default_weight() if self.config else None
+            previous_config.get_default_weight() if previous_config else None
         )
         if not self._load_config():
             return False
         if not self._build_services():
+            # Roll back, so `config` never reports settings that no live
+            # service was actually built from.
+            self._config_manager.restore(previous_config)
             return False
 
         config = self._config_manager.config

@@ -18,9 +18,13 @@ from shippy_gui.printing.printer_manager import print_image
 class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
     """Worker thread for async shipment creation and printing.
 
-    Printing happens here so it stays off the UI thread. Refunds do not: a
-    failed print is reported via ``print_failed`` and the coordinator owns the
-    single refund policy shared with the print-dialog path.
+    Printing and, when it fails, the refund both happen here, inside
+    :meth:`run`, so that neither depends on the UI thread still being alive.
+    The coordinator is only told the outcome, via ``refunded``.
+
+    The print-dialog path is the exception: the dialog is inherently a UI
+    affair, so ``label_ready`` hands off to the coordinator, which owns the
+    refund for that path using a policy bound at purchase time.
     """
 
     # Signals
@@ -76,6 +80,12 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
                 on_warning=self.warning.emit,
             )
         except ShipmentPreparationError as error:
+            if error.shipment is not None:
+                # Postage was already bought before this failed; refund it
+                # rather than reporting a failure the operator would ignore.
+                self.shipment = error.shipment
+                self._refund(error.shipment, str(error))
+                return
             self.error.emit(f"Shipment creation failed: {error}")
             return
 
