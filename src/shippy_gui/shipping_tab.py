@@ -1,5 +1,7 @@
 """Unified shipping tab with manual address entry."""
 
+import logging
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
@@ -37,6 +39,8 @@ from shippy_gui.widgets.autocomplete import (
 )
 from shippy_gui.widgets.address_form import AddressForm
 from shippy_gui.widgets.shipment_controls import ShipmentControls
+
+logger = logging.getLogger(__name__)
 
 
 class ShippingTab(QWidget):
@@ -175,6 +179,23 @@ class ShippingTab(QWidget):
             return
 
         pending = journal.pending()
+
+        # pending() quarantines an unusable journal; that may have hidden
+        # shipments, so the operator has to hear about it.
+        if os.path.exists(journal.corrupt_path):
+            show_error(
+                self,
+                "Unreadable Shipment Record",
+                "The record of unfinished shipments could not be read and was "
+                f"moved to:\n\n{journal.corrupt_path}\n\n"
+                "Please check EasyPost for recent shipments that were never "
+                "printed and refund them manually.",
+            )
+            try:
+                os.replace(journal.corrupt_path, f"{journal.corrupt_path}.reported")
+            except OSError:
+                logger.warning("Could not mark corrupt journal as reported")
+
         if not pending:
             return
 
@@ -183,21 +204,43 @@ class ShippingTab(QWidget):
             + (f" (tracking {entry.tracking_code})" if entry.tracking_code else "")
             for entry in pending
         )
-        answer = QMessageBox.question(
-            self,
-            "Unfinished Shipment",
+        prompt = QMessageBox(self)
+        prompt.setWindowTitle("Unfinished Shipment")
+        prompt.setIcon(QMessageBox.Icon.Question)
+        prompt.setText(
             f"{len(pending)} shipment(s) had postage bought last time but were "
             "never confirmed printed:\n\n"
             f"{described}\n\n"
-            "Refund them now?\n\n"
-            "Choose No if the labels did print - refunding a label that was "
-            "already used on a package would leave it without valid postage.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
+            "Did these labels fail to print?"
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        prompt.setInformativeText(
+            "Refund them - no usable label came out.\n"
+            "They printed - keep the postage; refunding a label already used "
+            "on a package would leave it without valid postage.\n"
+            "Decide later - ask again next time."
+        )
+        refund_button = prompt.addButton(
+            "Refund them", QMessageBox.ButtonRole.DestructiveRole
+        )
+        printed_button = prompt.addButton(
+            "They printed", QMessageBox.ButtonRole.AcceptRole
+        )
+        later_button = prompt.addButton(
+            "Decide later", QMessageBox.ButtonRole.RejectRole
+        )
+        # Dismissing the dialog must never destroy the trail, so Escape and the
+        # window close both land on "decide later".
+        prompt.setDefaultButton(later_button)
+        prompt.setEscapeButton(later_button)
+        prompt.exec()
+        clicked = prompt.clickedButton()
+
+        if clicked is printed_button:
             for entry in pending:
                 journal.clear(entry.shipment_id)
+            return
+        if clicked is not refund_button:
+            # Deliberately keep every entry so the question returns next start.
             return
 
         policy = RefundPolicy(shipment_service)

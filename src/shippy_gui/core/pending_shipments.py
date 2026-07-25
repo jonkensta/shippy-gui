@@ -52,31 +52,41 @@ class PendingShipmentJournal:
         """Path of the backing file."""
         return self._path
 
+    @property
+    def corrupt_path(self) -> str:
+        """Where unreadable journal content is moved for inspection."""
+        return f"{self._path}.corrupt"
+
     def record(
         self,
         shipment_id: str,
         tracking_code: Optional[str] = None,
         recorded_at: Optional[str] = None,
-    ) -> None:
-        """Note that postage was bought for a shipment."""
+    ) -> bool:
+        """Note that postage was bought for a shipment.
+
+        Returns:
+            True if the record is on disk. False means this shipment is not
+            recoverable automatically and the caller must say so out loud.
+        """
         if not shipment_id:
-            return
+            return False
         entries = {entry.shipment_id: entry for entry in self.pending()}
         entries[shipment_id] = PendingShipment(
             shipment_id=shipment_id,
             tracking_code=tracking_code,
             recorded_at=recorded_at,
         )
-        self._write(list(entries.values()))
+        return self._write(list(entries.values()))
 
-    def clear(self, shipment_id: str) -> None:
+    def clear(self, shipment_id: str) -> bool:
         """Drop a shipment whose outcome is now known."""
         if not shipment_id:
-            return
+            return False
         remaining = [
             entry for entry in self.pending() if entry.shipment_id != shipment_id
         ]
-        self._write(remaining)
+        return self._write(remaining)
 
     def pending(self) -> list[PendingShipment]:
         """Return shipments recorded but never resolved."""
@@ -86,11 +96,11 @@ class PendingShipmentJournal:
             with open(self._path, "r", encoding="utf-8") as handle:
                 raw = json.load(handle)
         except (OSError, ValueError):
-            logger.warning("Could not read %s; treating as empty", self._path)
+            self._quarantine("unreadable")
             return []
 
         if not isinstance(raw, list):
-            logger.warning("Unexpected content in %s; treating as empty", self._path)
+            self._quarantine("unexpected content")
             return []
 
         entries = []
@@ -109,7 +119,23 @@ class PendingShipmentJournal:
             )
         return entries
 
-    def _write(self, entries: list[PendingShipment]) -> None:
+    def _quarantine(self, reason: str) -> None:
+        """Move an unusable journal aside so the operator can be told.
+
+        Silently discarding it would hide shipments that may be unrefunded.
+        """
+        logger.error(
+            "Pending-shipment journal %s is %s; moving to %s",
+            self._path,
+            reason,
+            self.corrupt_path,
+        )
+        try:
+            os.replace(self._path, self.corrupt_path)
+        except OSError:
+            logger.error("Could not quarantine %s", self._path, exc_info=True)
+
+    def _write(self, entries: list[PendingShipment]) -> bool:
         """Persist the journal, replacing the file atomically."""
         payload = [
             {
@@ -126,9 +152,11 @@ class PendingShipmentJournal:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, self._path)
+            return True
         except OSError:
-            logger.warning("Could not write %s", self._path, exc_info=True)
+            logger.error("Could not write %s", self._path, exc_info=True)
             try:
                 os.remove(temp_path)
             except OSError:
                 pass
+            return False

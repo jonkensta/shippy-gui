@@ -81,22 +81,19 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
                 self.workflow_input,
                 on_progress=self.progress.emit,
                 on_warning=self.warning.emit,
+                on_purchase=self._record_pending,
             )
         except ShipmentPreparationError as error:
             if error.shipment is not None:
                 # Postage was already bought before this failed; refund it
                 # rather than reporting a failure the operator would ignore.
                 self.shipment = error.shipment
-                self._record_pending(error.shipment)
                 self._refund(error.shipment, str(error))
                 return
             self.error.emit(f"Shipment creation failed: {error}")
             return
 
         self.shipment = prepared.shipment
-        # Money has been spent. Record it before anything that could crash, so
-        # an interrupted run leaves a trail to reconcile at next startup.
-        self._record_pending(prepared.shipment)
 
         if self.use_dialog:
             self.label_ready.emit(prepared.image, self.printer_name, prepared.shipment)
@@ -119,13 +116,24 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
         )
 
     def _record_pending(self, shipment) -> None:
-        """Note bought postage whose outcome is not yet known."""
+        """Note bought postage whose outcome is not yet known.
+
+        Called by the workflow the instant postage is bought. A failure here
+        means the shipment cannot be recovered automatically, so it is said
+        out loud rather than swallowed.
+        """
         if self.journal is None:
             return
-        self.journal.record(
-            getattr(shipment, "id", ""),
+        shipment_id = getattr(shipment, "id", "")
+        recorded = self.journal.record(
+            shipment_id,
             tracking_code=getattr(shipment, "tracking_code", None),
         )
+        if not recorded:
+            self.warning.emit(
+                f"Could not record shipment {shipment_id} locally. "
+                "If this label does not print, refund it manually in EasyPost."
+            )
 
     def _resolve_pending(self, shipment) -> None:
         """Drop a shipment that is now confirmed printed or refunded."""

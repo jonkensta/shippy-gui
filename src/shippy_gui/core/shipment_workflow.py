@@ -21,6 +21,7 @@ from shippy_gui.core.services import ShipmentService
 
 ProgressCallback = Callable[[str], None]
 WarningCallback = Callable[[str], None]
+PurchaseCallback = Callable[[Any], None]
 
 
 class ShipmentPreparationError(Exception):
@@ -70,6 +71,7 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
         workflow_input: ShipmentWorkflowInput,
         on_progress: Optional[ProgressCallback] = None,
         on_warning: Optional[WarningCallback] = None,
+        on_purchase: Optional[PurchaseCallback] = None,
     ) -> PreparedLabel:
         """Create a shipment, buy postage, and build the label image.
 
@@ -118,6 +120,12 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
             raise ShipmentPreparationError(f"EasyPost API error: {error}") from error
         except Exception as error:  # pylint: disable=broad-exception-caught
             raise ShipmentPreparationError(f"Unexpected error: {error}") from error
+
+        # The very next thing after money changes hands: tell the caller, so it
+        # can durably record the purchase. Everything below can fail or be
+        # killed, and the shipment still has to be recoverable.
+        if on_purchase is not None:
+            on_purchase(shipment)
 
         # Past this point money has been spent. Every failure below has to
         # carry the shipment so the caller can refund it.

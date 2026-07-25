@@ -61,10 +61,24 @@ class ShipmentWorkerTests(unittest.TestCase):
             lambda *args: self.emitted["label_ready"].append(args)
         )
 
+    def _prepare_label_stub(self, _workflow_input, **kwargs):
+        """Stand in for prepare_label, honouring the on_purchase contract.
+
+        The real workflow invokes on_purchase the instant postage is bought,
+        before the label is downloaded; the stub must do the same or the
+        journal behaviour under test is not exercised.
+        """
+        on_purchase = kwargs.get("on_purchase")
+        if on_purchase is not None:
+            on_purchase(self.prepared.shipment)
+        return self.prepared
+
     def test_successful_print_emits_tracking_code(self):
         with (
             patch.object(
-                self.worker.workflow, "prepare_label", return_value=self.prepared
+                self.worker.workflow,
+                "prepare_label",
+                side_effect=self._prepare_label_stub,
             ),
             patch("shippy_gui.workers.shipment_worker.print_image"),
         ):
@@ -78,7 +92,9 @@ class ShipmentWorkerTests(unittest.TestCase):
         """The refund must happen in run(), not be deferred to the UI thread."""
         with (
             patch.object(
-                self.worker.workflow, "prepare_label", return_value=self.prepared
+                self.worker.workflow,
+                "prepare_label",
+                side_effect=self._prepare_label_stub,
             ),
             patch(
                 "shippy_gui.workers.shipment_worker.print_image",
@@ -97,7 +113,9 @@ class ShipmentWorkerTests(unittest.TestCase):
     def test_unexpected_print_error_still_refunds_but_is_labeled(self):
         with (
             patch.object(
-                self.worker.workflow, "prepare_label", return_value=self.prepared
+                self.worker.workflow,
+                "prepare_label",
+                side_effect=self._prepare_label_stub,
             ),
             patch(
                 "shippy_gui.workers.shipment_worker.print_image",
@@ -115,7 +133,9 @@ class ShipmentWorkerTests(unittest.TestCase):
 
         with (
             patch.object(
-                self.worker.workflow, "prepare_label", return_value=self.prepared
+                self.worker.workflow,
+                "prepare_label",
+                side_effect=self._prepare_label_stub,
             ),
             patch(
                 "shippy_gui.workers.shipment_worker.print_image",
@@ -162,7 +182,9 @@ class ShipmentWorkerTests(unittest.TestCase):
 
         with (
             patch.object(
-                self.worker.workflow, "prepare_label", return_value=self.prepared
+                self.worker.workflow,
+                "prepare_label",
+                side_effect=self._prepare_label_stub,
             ),
             patch("shippy_gui.workers.shipment_worker.print_image") as mock_print,
         ):
@@ -181,7 +203,7 @@ class ShipmentWorkerTests(unittest.TestCase):
         self.worker.use_dialog = True
 
         with patch.object(
-            self.worker.workflow, "prepare_label", return_value=self.prepared
+            self.worker.workflow, "prepare_label", side_effect=self._prepare_label_stub
         ):
             self.worker.run()
 
@@ -198,7 +220,9 @@ class ShipmentWorkerTests(unittest.TestCase):
 
         with (
             patch.object(
-                self.worker.workflow, "prepare_label", return_value=self.prepared
+                self.worker.workflow,
+                "prepare_label",
+                side_effect=self._prepare_label_stub,
             ),
             patch("shippy_gui.workers.shipment_worker.print_image"),
         ):
@@ -214,7 +238,9 @@ class ShipmentWorkerTests(unittest.TestCase):
 
         with (
             patch.object(
-                self.worker.workflow, "prepare_label", return_value=self.prepared
+                self.worker.workflow,
+                "prepare_label",
+                side_effect=self._prepare_label_stub,
             ),
             patch(
                 "shippy_gui.workers.shipment_worker.print_image",
@@ -235,7 +261,9 @@ class ShipmentWorkerTests(unittest.TestCase):
 
         with (
             patch.object(
-                self.worker.workflow, "prepare_label", return_value=self.prepared
+                self.worker.workflow,
+                "prepare_label",
+                side_effect=self._prepare_label_stub,
             ),
             patch(
                 "shippy_gui.workers.shipment_worker.print_image",
@@ -252,7 +280,9 @@ class ShipmentWorkerTests(unittest.TestCase):
         """A later service swap must not change who the refund goes through."""
         with (
             patch.object(
-                self.worker.workflow, "prepare_label", return_value=self.prepared
+                self.worker.workflow,
+                "prepare_label",
+                side_effect=self._prepare_label_stub,
             ),
             patch(
                 "shippy_gui.workers.shipment_worker.print_image",
