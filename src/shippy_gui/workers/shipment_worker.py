@@ -57,6 +57,9 @@ class ShipmentWorker(QThread):  # pylint: disable=too-few-public-methods
             printer_name: Name of printer to use
             logo_path: Optional path to logo image to overlay
             use_dialog: Whether to use system print dialog (default: False)
+            journal: Optional durable record of purchased postage, used to
+                reconcile a shipment if the app dies before it is printed
+                or refunded.
         """
         super().__init__()
         self.workflow = ShipmentWorkflow(shipment_service)

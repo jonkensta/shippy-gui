@@ -186,8 +186,8 @@ class ShippingTab(QWidget):
             show_error(
                 self,
                 "Unreadable Shipment Record",
-                "The record of unfinished shipments could not be read and was "
-                f"moved to:\n\n{journal.corrupt_path}\n\n"
+                "Part of the record of unfinished shipments could not be read. "
+                f"A copy was saved to:\n\n{journal.corrupt_path}\n\n"
                 "Please check EasyPost for recent shipments that were never "
                 "printed and refund them manually.",
             )
