@@ -20,8 +20,6 @@ from shippy_gui.printing.backends.base import PrinterBackend
 
 logger = logging.getLogger(__name__)
 
-VID_PID_PATTERN = re.compile(r"VID_([0-9A-Fa-f]{4}).*PID_([0-9A-Fa-f]{4})")
-
 # Trailing USB identifiers in a Windows printer queue name, separated from the
 # rest of the name by a space, hyphen, or underscore:
 #   * "PM-2411-BT 2E3C:5760"              -> VID:PID, shared by every unit of a
@@ -65,7 +63,7 @@ class WindowsPrinterBackend(PrinterBackend):
             return []
 
         try:
-            device_ids = self._get_present_usb_device_ids()
+            device_ids = self.get_present_usb_device_ids()
         except ImportError:
             logger.warning("WMI not available for Windows USB printer filtering")
             return []
@@ -304,16 +302,23 @@ class WindowsPrinterBackend(PrinterBackend):
             logger.debug("Windows printer enumeration failed", exc_info=True)
         return []
 
-    def _get_present_usb_device_ids(self) -> set[str]:
+    def get_present_usb_device_ids(self, conn=None) -> set[str]:
         """Return device-instance IDs for present, working USB devices.
 
         The full instance ID is kept rather than just VID:PID, because the
         trailing segment carries the per-unit serial used to disambiguate two
         printers of the same model.
-        """
-        import wmi  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
 
-        conn = wmi.WMI()
+        Args:
+            conn: An open WMI connection to reuse. One is opened when omitted.
+                ``diagnose-printers`` passes its own so the report is filtered
+                by this method rather than by a copy of it that can drift.
+        """
+        if conn is None:
+            import wmi  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
+
+            conn = wmi.WMI()
+
         device_ids: set[str] = set()
         for entity in conn.Win32_PnPEntity():
             device_id = getattr(entity, "DeviceID", "") or ""
@@ -332,12 +337,3 @@ class WindowsPrinterBackend(PrinterBackend):
 
             device_ids.add(device_id)
         return device_ids
-
-    @staticmethod
-    def _extract_vid_pid(device_id: str) -> Optional[str]:
-        """Extract `vid:pid` from a Windows USB PnP device identifier."""
-        match = VID_PID_PATTERN.search(device_id)
-        if not match:
-            return None
-        vendor_id, product_id = match.groups()
-        return f"{vendor_id.lower()}:{product_id.lower()}"

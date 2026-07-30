@@ -40,15 +40,6 @@ class WindowsPrinterBackendTests(unittest.TestCase):
     def setUp(self):
         self.backend = WindowsPrinterBackend()
 
-    def test_extract_vid_pid(self):
-        self.assertEqual(
-            self.backend._extract_vid_pid(r"USB\VID_20D1&PID_7008\5&3A2D8B1E&0&1"),
-            "20d1:7008",
-        )
-
-    def test_extract_vid_pid_returns_none_for_malformed_id(self):
-        self.assertIsNone(self.backend._extract_vid_pid("USB\\MISSING"))
-
     def test_parse_name_identifier_reads_vid_pid_with_supported_separators(self):
         for name in (
             "iDPRT_SP310_20d1:7008",
@@ -207,7 +198,7 @@ class WindowsPrinterBackendTests(unittest.TestCase):
 
         with patch.dict(sys.modules, {"wmi": fake_wmi_module}):
             self.assertEqual(
-                self.backend._get_present_usb_device_ids(),
+                self.backend.get_present_usb_device_ids(),
                 {r"USB\VID_9999&PID_0001\5&3A2D8B1E&0&2"},
             )
 
