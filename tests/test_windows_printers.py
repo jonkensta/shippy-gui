@@ -267,6 +267,70 @@ class FakeDeviceContext:
     def EndDoc(self):  # pylint: disable=invalid-name
         self._record("EndDoc")
 
+    def CreatePrinterDC(self, name):  # pylint: disable=invalid-name,unused-argument
+        self._record("CreatePrinterDC")
+
+    def DeleteDC(self):  # pylint: disable=invalid-name
+        self._record("DeleteDC")
+
+
+class FakeWin32Ui:
+    """Stand-in for the win32ui module that hands out one device context."""
+
+    def __init__(self, context=None, create_error: Exception | None = None):
+        self.context = context
+        self._create_error = create_error
+
+    def CreateDC(self):  # pylint: disable=invalid-name
+        if self._create_error is not None:
+            raise self._create_error
+        return self.context
+
+
+class PrinterContextTests(unittest.TestCase):
+    """Tests that the device context is released exactly when it was acquired."""
+
+    def test_success_path_opens_and_releases_the_context(self):
+        context = FakeDeviceContext()
+
+        with WindowsPrinterBackend._printer_context(
+            FakeWin32Ui(context), "Front-Desk PM-2411-BT Q529E65K5250028"
+        ) as yielded:
+            self.assertIs(yielded, context)
+
+        self.assertEqual(context.calls, ["CreatePrinterDC", "DeleteDC"])
+
+    def test_queue_open_failure_still_releases_the_context(self):
+        """A paused queue or broken driver must not leak the device context."""
+        context = FakeDeviceContext(failing_call="CreatePrinterDC")
+
+        with self.assertRaises(RuntimeError):
+            with WindowsPrinterBackend._printer_context(
+                FakeWin32Ui(context), "Front-Desk PM-2411-BT Q529E65K5250028"
+            ):
+                self.fail("body must not run when the queue cannot be opened")
+
+        self.assertEqual(context.calls, ["CreatePrinterDC", "DeleteDC"])
+
+    def test_context_creation_failure_surfaces_the_real_error(self):
+        """With no context acquired there is nothing to release."""
+        win32ui = FakeWin32Ui(create_error=OSError("no GDI handles left"))
+
+        with self.assertRaisesRegex(OSError, "no GDI handles left"):
+            with WindowsPrinterBackend._printer_context(win32ui, "Front-Desk"):
+                self.fail("body must not run when CreateDC fails")
+
+    def test_body_failure_still_releases_the_context(self):
+        context = FakeDeviceContext()
+
+        with self.assertRaises(ValueError):
+            with WindowsPrinterBackend._printer_context(
+                FakeWin32Ui(context), "Front-Desk"
+            ):
+                raise ValueError("draw failed")
+
+        self.assertEqual(context.calls, ["CreatePrinterDC", "DeleteDC"])
+
 
 class PrintJobTests(unittest.TestCase):
     """Tests that print-job cleanup never runs ahead of its acquisition."""

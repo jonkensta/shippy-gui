@@ -154,9 +154,7 @@ class WindowsPrinterBackend(PrinterBackend):
 
         return None
 
-    def print_image(  # pylint: disable=too-many-locals
-        self, img: Image.Image, printer_name: str
-    ) -> None:
+    def print_image(self, img: Image.Image, printer_name: str) -> None:
         """Print image using win32ui."""
         try:
             import win32ui  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
@@ -165,11 +163,7 @@ class WindowsPrinterBackend(PrinterBackend):
             self._print_fallback(img)
             return
 
-        # Create printer device context
-        context = win32ui.CreateDC()
-        context.CreatePrinterDC(printer_name)
-
-        try:
+        with self._printer_context(win32ui, printer_name) as context:
             # Auto-rotate if landscape
             if img.size[0] > img.size[1]:
                 img = img.rotate(90, expand=True)
@@ -181,6 +175,22 @@ class WindowsPrinterBackend(PrinterBackend):
             with self._print_job(context, "Shipping Label"):
                 dib = ImageWin.Dib(img)
                 dib.draw(context.GetHandleOutput(), print_rect)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _printer_context(win32ui, printer_name: str) -> Iterator:
+        """Yield a device context bound to a queue, releasing it afterwards.
+
+        The context is acquired before the try whose finally releases it: if
+        CreateDC itself fails there is nothing to release, and running the
+        finally anyway would raise UnboundLocalError over the real error.
+        Opening the queue then happens inside that try, so a queue that cannot
+        be opened no longer leaks the device context it was handed.
+        """
+        context = win32ui.CreateDC()
+        try:
+            context.CreatePrinterDC(printer_name)
+            yield context
 
         finally:
             context.DeleteDC()
