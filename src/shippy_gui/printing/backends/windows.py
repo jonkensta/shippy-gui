@@ -98,7 +98,9 @@ class WindowsPrinterBackend(PrinterBackend):
             return f"{vid_pid.group(1).upper()}:{vid_pid.group(2).upper()}", None
 
         serial = NAME_SERIAL_PATTERN.search(printer_name.rstrip())
-        if serial:
+        # Require a digit so ordinary trailing words ("Front Desk Printer") are
+        # not read as serial numbers.
+        if serial and any(char.isdigit() for char in serial.group(1)):
             return None, serial.group(1).upper()
 
         return None, None

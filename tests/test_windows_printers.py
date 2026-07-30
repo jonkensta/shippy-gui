@@ -81,6 +81,13 @@ class WindowsPrinterBackendTests(unittest.TestCase):
             WindowsPrinterBackend.parse_name_identifier("Office"), (None, None)
         )
 
+    def test_parse_name_identifier_ignores_a_trailing_word_with_no_digits(self):
+        """An ordinary descriptive name is not a serial number."""
+        self.assertEqual(
+            WindowsPrinterBackend.parse_name_identifier("Front Desk Printer"),
+            (None, None),
+        )
+
     def test_serial_named_queues_bind_only_to_their_own_unit(self):
         """Two printers of one model share a VID:PID; only serials separate them."""
         device_ids = {

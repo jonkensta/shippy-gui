@@ -2,11 +2,17 @@
 
 import unittest
 
+from shippy_gui.printing.backends.windows import WindowsPrinterBackend
 from shippy_gui.printing.printer_service import PrinterService
 
 
 class FakePrinterBackend:
-    """Simple backend stub for printer service tests."""
+    """Simple backend stub for printer service tests.
+
+    Name parsing is delegated to the real Windows backend, because the service
+    is meant to report whatever identifier the backend matched on rather than
+    deriving one of its own.
+    """
 
     def __init__(self, printers: list[str], default_printer: str | None):
         self._printers = printers
@@ -20,6 +26,18 @@ class FakePrinterBackend:
 
     def print_image(self, img, printer_name: str) -> None:
         raise NotImplementedError
+
+    @staticmethod
+    def parse_name_identifier(printer_name: str):
+        return WindowsPrinterBackend.parse_name_identifier(printer_name)
+
+
+class NamelessPrinterBackend(FakePrinterBackend):
+    """Backend for a platform with no USB naming convention."""
+
+    @staticmethod
+    def parse_name_identifier(printer_name: str):
+        return None, None
 
 
 class PrinterServiceTests(unittest.TestCase):
@@ -83,6 +101,20 @@ class PrinterServiceTests(unittest.TestCase):
         serials = {printer.serial for printer in service.get_available_printers()}
 
         self.assertEqual(serials, {"Q529E65K5250028", "Q529E65K5250099"})
+
+    def test_a_backend_with_no_naming_convention_reports_no_transport(self):
+        """The service must not invent a USB identity the backend never matched."""
+        service = PrinterService(
+            backend=NamelessPrinterBackend(
+                printers=["Brother_HL2350DW"], default_printer=None
+            )
+        )
+
+        printer = service.get_available_printers()[0]
+
+        self.assertIsNone(printer.transport)
+        self.assertIsNone(printer.usb_id)
+        self.assertIsNone(printer.serial)
 
 
 if __name__ == "__main__":
