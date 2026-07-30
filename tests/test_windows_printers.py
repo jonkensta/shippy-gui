@@ -40,15 +40,6 @@ class WindowsPrinterBackendTests(unittest.TestCase):
     def setUp(self):
         self.backend = WindowsPrinterBackend()
 
-    def test_extract_vid_pid(self):
-        self.assertEqual(
-            self.backend._extract_vid_pid(r"USB\VID_20D1&PID_7008\5&3A2D8B1E&0&1"),
-            "20d1:7008",
-        )
-
-    def test_extract_vid_pid_returns_none_for_malformed_id(self):
-        self.assertIsNone(self.backend._extract_vid_pid("USB\\MISSING"))
-
     def test_parse_name_identifier_reads_vid_pid_with_supported_separators(self):
         for name in (
             "iDPRT_SP310_20d1:7008",
@@ -80,6 +71,26 @@ class WindowsPrinterBackendTests(unittest.TestCase):
         self.assertEqual(
             WindowsPrinterBackend.parse_name_identifier("Office"), (None, None)
         )
+
+    def test_an_all_letter_serial_still_matches_its_unit(self):
+        """Nothing requires a USB serial to contain a digit."""
+        device_ids = {r"USB\VID_2E3C&PID_5760\ABCDEF"}
+
+        keys = WindowsPrinterBackend.matching_device_keys(
+            "Label Printer ABCDEF", device_ids
+        )
+
+        self.assertEqual(keys, {("2E3C", "5760", "ABCDEF")})
+
+    def test_a_descriptive_trailing_word_matches_no_device(self):
+        """Exact-tail equality, not the shape of the word, is what gates a match."""
+        device_ids = {r"USB\VID_2E3C&PID_5760\Q529E65K5250028"}
+
+        keys = WindowsPrinterBackend.matching_device_keys(
+            "Front Desk Printer", device_ids
+        )
+
+        self.assertEqual(keys, set())
 
     def test_serial_named_queues_bind_only_to_their_own_unit(self):
         """Two printers of one model share a VID:PID; only serials separate them."""
@@ -200,7 +211,7 @@ class WindowsPrinterBackendTests(unittest.TestCase):
 
         with patch.dict(sys.modules, {"wmi": fake_wmi_module}):
             self.assertEqual(
-                self.backend._get_present_usb_device_ids(),
+                self.backend.get_present_usb_device_ids(),
                 {r"USB\VID_9999&PID_0001\5&3A2D8B1E&0&2"},
             )
 
@@ -241,6 +252,165 @@ class WindowsPrinterBackendTests(unittest.TestCase):
         with patch.dict(sys.modules, {"wmi": None}):
             with self.assertLogs("shippy_gui.printing.backends.windows", "WARNING"):
                 self.assertEqual(self.backend.get_available_printers(), [])
+
+
+class FakeDeviceContext:
+    """Records GDI calls and optionally fails one of them."""
+
+    def __init__(self, failing_call: str | None = None):
+        self.calls: list[str] = []
+        self._failing_call = failing_call
+
+    def _record(self, call: str):
+        self.calls.append(call)
+        if call == self._failing_call:
+            raise RuntimeError(f"{call} failed")
+
+    def StartDoc(self, name):  # pylint: disable=invalid-name,unused-argument
+        self._record("StartDoc")
+
+    def StartPage(self):  # pylint: disable=invalid-name
+        self._record("StartPage")
+
+    def EndPage(self):  # pylint: disable=invalid-name
+        self._record("EndPage")
+
+    def EndDoc(self):  # pylint: disable=invalid-name
+        self._record("EndDoc")
+
+    def AbortDoc(self):  # pylint: disable=invalid-name
+        self._record("AbortDoc")
+
+    def CreatePrinterDC(self, name):  # pylint: disable=invalid-name,unused-argument
+        self._record("CreatePrinterDC")
+
+    def DeleteDC(self):  # pylint: disable=invalid-name
+        self._record("DeleteDC")
+
+
+class FakeWin32Ui:
+    """Stand-in for the win32ui module that hands out one device context."""
+
+    def __init__(self, context=None, create_error: Exception | None = None):
+        self.context = context
+        self._create_error = create_error
+
+    def CreateDC(self):  # pylint: disable=invalid-name
+        if self._create_error is not None:
+            raise self._create_error
+        return self.context
+
+
+class PrinterContextTests(unittest.TestCase):
+    """Tests that the device context is released exactly when it was acquired."""
+
+    def test_success_path_opens_and_releases_the_context(self):
+        context = FakeDeviceContext()
+
+        with WindowsPrinterBackend._printer_context(
+            FakeWin32Ui(context), "Front-Desk PM-2411-BT Q529E65K5250028"
+        ) as yielded:
+            self.assertIs(yielded, context)
+
+        self.assertEqual(context.calls, ["CreatePrinterDC", "DeleteDC"])
+
+    def test_queue_open_failure_still_releases_the_context(self):
+        """A paused queue or broken driver must not leak the device context."""
+        context = FakeDeviceContext(failing_call="CreatePrinterDC")
+
+        with self.assertRaisesRegex(RuntimeError, "Could not open printer queue"):
+            with WindowsPrinterBackend._printer_context(
+                FakeWin32Ui(context), "Front-Desk PM-2411-BT Q529E65K5250028"
+            ):
+                self.fail("body must not run when the queue cannot be opened")
+
+        self.assertEqual(context.calls, ["CreatePrinterDC", "DeleteDC"])
+
+    def test_queue_open_failure_keeps_the_gdi_error_as_the_cause(self):
+        context = FakeDeviceContext(failing_call="CreatePrinterDC")
+
+        with self.assertRaises(RuntimeError) as caught:
+            with WindowsPrinterBackend._printer_context(
+                FakeWin32Ui(context), "Front-Desk"
+            ):
+                pass
+
+        self.assertIsInstance(caught.exception.__cause__, RuntimeError)
+        self.assertIn("CreatePrinterDC failed", str(caught.exception.__cause__))
+
+    def test_context_creation_failure_is_reported_as_a_runtime_error(self):
+        """With no context acquired there is nothing to release."""
+        win32ui = FakeWin32Ui(create_error=OSError("no GDI handles left"))
+
+        with self.assertRaisesRegex(RuntimeError, "printer device context"):
+            with WindowsPrinterBackend._printer_context(win32ui, "Front-Desk"):
+                self.fail("body must not run when CreateDC fails")
+
+    def test_body_failure_releases_the_context_and_propagates_unwrapped(self):
+        """Only open failures are translated; a draw failure is not one."""
+        context = FakeDeviceContext()
+
+        with self.assertRaisesRegex(ValueError, "draw failed"):
+            with WindowsPrinterBackend._printer_context(
+                FakeWin32Ui(context), "Front-Desk"
+            ):
+                raise ValueError("draw failed")
+
+        self.assertEqual(context.calls, ["CreatePrinterDC", "DeleteDC"])
+
+
+class PrintJobTests(unittest.TestCase):
+    """Tests that print-job cleanup never runs ahead of its acquisition."""
+
+    def test_success_path_opens_and_closes_the_job(self):
+        context = FakeDeviceContext()
+
+        with WindowsPrinterBackend._print_job(context, "Shipping Label"):
+            pass
+
+        self.assertEqual(context.calls, ["StartDoc", "StartPage", "EndPage", "EndDoc"])
+
+    def test_body_failure_discards_the_job_instead_of_committing_it(self):
+        """A half-drawn label must be aborted, not spooled as a finished document."""
+        context = FakeDeviceContext()
+
+        with self.assertRaises(ValueError):
+            with WindowsPrinterBackend._print_job(context, "Shipping Label"):
+                raise ValueError("draw failed")
+
+        self.assertEqual(context.calls, ["StartDoc", "StartPage", "AbortDoc"])
+        self.assertNotIn("EndDoc", context.calls)
+
+    def test_start_doc_failure_surfaces_the_real_error(self):
+        """GDI rejects the closers here, which would mask the real cause."""
+        context = FakeDeviceContext(failing_call="StartDoc")
+
+        with self.assertRaisesRegex(RuntimeError, "StartDoc failed"):
+            with WindowsPrinterBackend._print_job(context, "Shipping Label"):
+                self.fail("body must not run when StartDoc fails")
+
+        self.assertEqual(context.calls, ["StartDoc"])
+
+    def test_start_page_failure_discards_the_open_document(self):
+        context = FakeDeviceContext(failing_call="StartPage")
+
+        with self.assertRaisesRegex(RuntimeError, "StartPage failed"):
+            with WindowsPrinterBackend._print_job(context, "Shipping Label"):
+                self.fail("body must not run when StartPage fails")
+
+        self.assertEqual(context.calls, ["StartDoc", "StartPage", "AbortDoc"])
+
+    def test_end_page_failure_discards_the_job(self):
+        """The page closer failing is still a failed label, not a finished one."""
+        context = FakeDeviceContext(failing_call="EndPage")
+
+        with self.assertRaisesRegex(RuntimeError, "EndPage failed"):
+            with WindowsPrinterBackend._print_job(context, "Shipping Label"):
+                pass
+
+        self.assertEqual(
+            context.calls, ["StartDoc", "StartPage", "EndPage", "AbortDoc"]
+        )
 
 
 if __name__ == "__main__":

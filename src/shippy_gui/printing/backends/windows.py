@@ -1,10 +1,11 @@
 """Windows printer backend using win32print."""
 
+import contextlib
 import logging
 import re
 import subprocess
 import tempfile
-from typing import Optional
+from typing import Iterator, Optional
 
 from PIL import Image
 
@@ -18,8 +19,6 @@ from shippy_gui.core.constants import (
 from shippy_gui.printing.backends.base import PrinterBackend
 
 logger = logging.getLogger(__name__)
-
-VID_PID_PATTERN = re.compile(r"VID_([0-9A-Fa-f]{4}).*PID_([0-9A-Fa-f]{4})")
 
 # Trailing USB identifiers in a Windows printer queue name, separated from the
 # rest of the name by a space, hyphen, or underscore:
@@ -64,7 +63,7 @@ class WindowsPrinterBackend(PrinterBackend):
             return []
 
         try:
-            device_ids = self._get_present_usb_device_ids()
+            device_ids = self.get_present_usb_device_ids()
         except ImportError:
             logger.warning("WMI not available for Windows USB printer filtering")
             return []
@@ -86,6 +85,14 @@ class WindowsPrinterBackend(PrinterBackend):
         printer_name: str,
     ) -> tuple[Optional[str], Optional[str]]:
         """Split a queue name's trailing USB identifier.
+
+        The trailing token is only a *candidate* serial. Nothing here rules out
+        an ordinary descriptive word ("Front Desk Printer"), because
+        :meth:`matching_device_keys` already requires the candidate to equal a
+        connected device's instance tail exactly - a word that names no device
+        matches nothing. A stricter rule here (say, requiring a digit) would
+        buy no safety and would hide any printer whose USB serial happens to be
+        all letters.
 
         Returns:
             ``(vid_pid, serial)`` where exactly one is set, or ``(None, None)``
@@ -153,9 +160,7 @@ class WindowsPrinterBackend(PrinterBackend):
 
         return None
 
-    def print_image(  # pylint: disable=too-many-locals
-        self, img: Image.Image, printer_name: str
-    ) -> None:
+    def print_image(self, img: Image.Image, printer_name: str) -> None:
         """Print image using win32ui."""
         try:
             import win32ui  # type: ignore[import-untyped] # pylint: disable=import-outside-toplevel
@@ -164,11 +169,7 @@ class WindowsPrinterBackend(PrinterBackend):
             self._print_fallback(img)
             return
 
-        # Create printer device context
-        context = win32ui.CreateDC()
-        context.CreatePrinterDC(printer_name)
-
-        try:
+        with self._printer_context(win32ui, printer_name) as context:
             # Auto-rotate if landscape
             if img.size[0] > img.size[1]:
                 img = img.rotate(90, expand=True)
@@ -177,17 +178,81 @@ class WindowsPrinterBackend(PrinterBackend):
             print_rect = self._calculate_print_rect(context, img.size)
 
             # Print the image
-            context.StartDoc("Shipping Label")
-            context.StartPage()
+            with self._print_job(context, "Shipping Label"):
+                dib = ImageWin.Dib(img)
+                dib.draw(context.GetHandleOutput(), print_rect)
 
-            dib = ImageWin.Dib(img)
-            dib.draw(context.GetHandleOutput(), print_rect)
+    @staticmethod
+    @contextlib.contextmanager
+    def _printer_context(win32ui, printer_name: str) -> Iterator:
+        """Yield a device context bound to a queue, releasing it afterwards.
 
-            context.EndPage()
-            context.EndDoc()
+        The context is acquired before the try whose finally releases it: if
+        CreateDC itself fails there is nothing to release, and running the
+        finally anyway would raise UnboundLocalError over the real error.
+        Opening the queue then happens inside that try, so a queue that cannot
+        be opened no longer leaks the device context it was handed.
+
+        Both open failures are reported as RuntimeError, the failure this
+        backend documents, with the GDI error kept as ``__cause__``. A body
+        failure propagates unwrapped: it is not an open failure.
+        """
+        try:
+            context = win32ui.CreateDC()
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            raise RuntimeError(
+                f"Could not create a printer device context ({exc})."
+            ) from exc
+
+        try:
+            # Opening the queue is the failure discovery cannot predict: a
+            # matching USB device can be present and working while the queue
+            # itself is paused, offline, or backed by a broken driver. Point
+            # the operator at the tool that reports those states rather than
+            # handing them a raw GDI error.
+            try:
+                context.CreatePrinterDC(printer_name)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                raise RuntimeError(
+                    f"Could not open printer queue {printer_name!r} ({exc}). "
+                    f"The printer is plugged in, but Windows could not open its "
+                    f"queue - check that it is not paused or offline, and run "
+                    f"diagnose-printers for details."
+                ) from exc
+
+            yield context
 
         finally:
             context.DeleteDC()
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _print_job(context, name: str) -> Iterator[None]:
+        """Open a print job on a device context and finish it on the way out.
+
+        A failed job is discarded with AbortDoc rather than committed with
+        EndDoc. EndDoc tells the spooler the document is complete, so closing a
+        job whose drawing raised would hand the volunteer a half-drawn label
+        for a shipment that is about to be refunded - worse than no label at
+        all. Leaving the job open instead, as this did before, abandons a
+        document in the spooler.
+
+        Cleanup is also kept behind its acquisition: GDI rejects EndPage
+        without StartPage and EndDoc without StartDoc, so calling them
+        unconditionally would replace a StartDoc failure ("spooler
+        unavailable") with a misleading "EndPage without StartPage".
+        """
+        context.StartDoc(name)
+        try:
+            context.StartPage()
+            yield
+            context.EndPage()
+
+        except BaseException:
+            context.AbortDoc()
+            raise
+
+        context.EndDoc()
 
     def _calculate_print_rect(self, context, img_size: tuple[int, int]) -> tuple:
         """Calculate the rectangle for centered, scaled printing.
@@ -249,16 +314,23 @@ class WindowsPrinterBackend(PrinterBackend):
             logger.debug("Windows printer enumeration failed", exc_info=True)
         return []
 
-    def _get_present_usb_device_ids(self) -> set[str]:
+    def get_present_usb_device_ids(self, conn=None) -> set[str]:
         """Return device-instance IDs for present, working USB devices.
 
         The full instance ID is kept rather than just VID:PID, because the
         trailing segment carries the per-unit serial used to disambiguate two
         printers of the same model.
-        """
-        import wmi  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
 
-        conn = wmi.WMI()
+        Args:
+            conn: An open WMI connection to reuse. One is opened when omitted.
+                ``diagnose-printers`` passes its own so the report is filtered
+                by this method rather than by a copy of it that can drift.
+        """
+        if conn is None:
+            import wmi  # type: ignore[import-not-found] # pylint: disable=import-outside-toplevel,import-error
+
+            conn = wmi.WMI()
+
         device_ids: set[str] = set()
         for entity in conn.Win32_PnPEntity():
             device_id = getattr(entity, "DeviceID", "") or ""
@@ -277,12 +349,3 @@ class WindowsPrinterBackend(PrinterBackend):
 
             device_ids.add(device_id)
         return device_ids
-
-    @staticmethod
-    def _extract_vid_pid(device_id: str) -> Optional[str]:
-        """Extract `vid:pid` from a Windows USB PnP device identifier."""
-        match = VID_PID_PATTERN.search(device_id)
-        if not match:
-            return None
-        vendor_id, product_id = match.groups()
-        return f"{vendor_id.lower()}:{product_id.lower()}"

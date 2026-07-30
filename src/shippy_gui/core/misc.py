@@ -11,8 +11,12 @@ from PIL import Image
 @contextlib.contextmanager
 def build_tempfile(*args, **kwargs):
     """Build a tempfile without opening it."""
+    # Create before the try: if NamedTemporaryFile itself fails there is no file
+    # to remove, and running the finally anyway raised UnboundLocalError,
+    # replacing the real error (bad temp dir, permissions, disk full) with a
+    # confusing one that points at shippy-gui rather than at the machine.
+    tmp = tempfile.NamedTemporaryFile(*args, **kwargs, delete=False)
     try:
-        tmp = tempfile.NamedTemporaryFile(*args, **kwargs, delete=False)
         tmp.close()
         yield tmp
     finally:

@@ -8,7 +8,7 @@ Usage:
         diagnose-printers
 """
 
-# pylint: disable=import-outside-toplevel,duplicate-code
+# pylint: disable=import-outside-toplevel
 
 import re
 import sys
@@ -120,7 +120,7 @@ def _print_matching_results(win32print, conn) -> None:
     print("=" * 60)
     print("SHIPPY-GUI MATCHING RESULTS")
     print("=" * 60)
-    device_ids = _get_present_usb_device_ids(conn)
+    device_ids = WindowsPrinterBackend().get_present_usb_device_ids(conn)
     print(f"Connected USB devices seen by shippy-gui: {len(device_ids)}")
     for device_id in sorted(device_ids):
         print(f"    {device_id!r}")
@@ -153,27 +153,6 @@ def _extract_vid_pid(device_id: str):
         return None
     vid, pid = match.groups()
     return f"{vid.upper()}:{pid.upper()}"
-
-
-def _get_present_usb_device_ids(conn) -> set[str]:
-    """Return device-instance IDs for USB devices passing shippy-gui's filters.
-
-    Mirrors ``WindowsPrinterBackend._get_present_usb_device_ids`` so the
-    diagnosis reflects what the app itself would see.
-    """
-    device_ids: set[str] = set()
-    for entity in conn.Win32_PnPEntity():
-        device_id = getattr(entity, "DeviceID", "") or ""
-        if not device_id.upper().startswith("USB"):
-            continue
-        status = (getattr(entity, "Status", "") or "").lower()
-        if status and status not in {"ok", "degraded"}:
-            continue
-        error_code = getattr(entity, "ConfigManagerErrorCode", 0)
-        if error_code not in (None, 0):
-            continue
-        device_ids.add(device_id)
-    return device_ids
 
 
 if __name__ == "__main__":

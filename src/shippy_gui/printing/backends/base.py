@@ -36,3 +36,22 @@ class PrinterBackend(ABC):
         Raises:
             RuntimeError: If printing fails.
         """
+
+    @staticmethod
+    def parse_name_identifier(  # pylint: disable=unused-argument
+        printer_name: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Split a queue name's trailing USB identifier, if it carries one.
+
+        Naming conventions are a property of the platform's printer subsystem,
+        so the rule lives with the backend that matches against it. Callers get
+        the same answer the backend used to decide whether the queue was worth
+        listing, which is what keeps reported metadata from disagreeing with
+        the discovery it describes.
+
+        Returns:
+            ``(vid_pid, serial)`` where at most one is set, or ``(None, None)``
+            when the platform has no such convention or the name carries no
+            identifier.
+        """
+        return None, None
