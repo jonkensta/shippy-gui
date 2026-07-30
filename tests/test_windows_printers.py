@@ -304,7 +304,7 @@ class PrinterContextTests(unittest.TestCase):
         """A paused queue or broken driver must not leak the device context."""
         context = FakeDeviceContext(failing_call="CreatePrinterDC")
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaisesRegex(RuntimeError, "Could not open printer queue"):
             with WindowsPrinterBackend._printer_context(
                 FakeWin32Ui(context), "Front-Desk PM-2411-BT Q529E65K5250028"
             ):
@@ -312,18 +312,31 @@ class PrinterContextTests(unittest.TestCase):
 
         self.assertEqual(context.calls, ["CreatePrinterDC", "DeleteDC"])
 
-    def test_context_creation_failure_surfaces_the_real_error(self):
+    def test_queue_open_failure_keeps_the_gdi_error_as_the_cause(self):
+        context = FakeDeviceContext(failing_call="CreatePrinterDC")
+
+        with self.assertRaises(RuntimeError) as caught:
+            with WindowsPrinterBackend._printer_context(
+                FakeWin32Ui(context), "Front-Desk"
+            ):
+                pass
+
+        self.assertIsInstance(caught.exception.__cause__, RuntimeError)
+        self.assertIn("CreatePrinterDC failed", str(caught.exception.__cause__))
+
+    def test_context_creation_failure_is_reported_as_a_runtime_error(self):
         """With no context acquired there is nothing to release."""
         win32ui = FakeWin32Ui(create_error=OSError("no GDI handles left"))
 
-        with self.assertRaisesRegex(OSError, "no GDI handles left"):
+        with self.assertRaisesRegex(RuntimeError, "printer device context"):
             with WindowsPrinterBackend._printer_context(win32ui, "Front-Desk"):
                 self.fail("body must not run when CreateDC fails")
 
-    def test_body_failure_still_releases_the_context(self):
+    def test_body_failure_releases_the_context_and_propagates_unwrapped(self):
+        """Only open failures are translated; a draw failure is not one."""
         context = FakeDeviceContext()
 
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "draw failed"):
             with WindowsPrinterBackend._printer_context(
                 FakeWin32Ui(context), "Front-Desk"
             ):

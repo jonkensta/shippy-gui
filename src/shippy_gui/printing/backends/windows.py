@@ -186,10 +186,34 @@ class WindowsPrinterBackend(PrinterBackend):
         finally anyway would raise UnboundLocalError over the real error.
         Opening the queue then happens inside that try, so a queue that cannot
         be opened no longer leaks the device context it was handed.
+
+        Both open failures are reported as RuntimeError, the failure this
+        backend documents, with the GDI error kept as ``__cause__``. A body
+        failure propagates unwrapped: it is not an open failure.
         """
-        context = win32ui.CreateDC()
         try:
-            context.CreatePrinterDC(printer_name)
+            context = win32ui.CreateDC()
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            raise RuntimeError(
+                f"Could not create a printer device context ({exc})."
+            ) from exc
+
+        try:
+            # Opening the queue is the failure discovery cannot predict: a
+            # matching USB device can be present and working while the queue
+            # itself is paused, offline, or backed by a broken driver. Point
+            # the operator at the tool that reports those states rather than
+            # handing them a raw GDI error.
+            try:
+                context.CreatePrinterDC(printer_name)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                raise RuntimeError(
+                    f"Could not open printer queue {printer_name!r} ({exc}). "
+                    f"The printer is plugged in, but Windows could not open its "
+                    f"queue - check that it is not paused or offline, and run "
+                    f"diagnose-printers for details."
+                ) from exc
+
             yield context
 
         finally:
