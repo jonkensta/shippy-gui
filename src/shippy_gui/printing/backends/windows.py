@@ -222,25 +222,31 @@ class WindowsPrinterBackend(PrinterBackend):
     @staticmethod
     @contextlib.contextmanager
     def _print_job(context, name: str) -> Iterator[None]:
-        """Open a print job on a device context and close it on the way out.
+        """Open a print job on a device context and finish it on the way out.
 
-        Each cleanup is guarded by its own acquisition, because GDI rejects
-        EndPage without StartPage and EndDoc without StartDoc. Calling them
-        unconditionally would turn a StartDoc failure ("spooler unavailable")
-        into a misleading "EndPage without StartPage" and lose the real cause;
-        leaving them out entirely, as this did before, abandoned an open
-        document in the spooler whenever drawing the label raised.
+        A failed job is discarded with AbortDoc rather than committed with
+        EndDoc. EndDoc tells the spooler the document is complete, so closing a
+        job whose drawing raised would hand the volunteer a half-drawn label
+        for a shipment that is about to be refunded - worse than no label at
+        all. Leaving the job open instead, as this did before, abandons a
+        document in the spooler.
+
+        Cleanup is also kept behind its acquisition: GDI rejects EndPage
+        without StartPage and EndDoc without StartDoc, so calling them
+        unconditionally would replace a StartDoc failure ("spooler
+        unavailable") with a misleading "EndPage without StartPage".
         """
         context.StartDoc(name)
         try:
             context.StartPage()
-            try:
-                yield
+            yield
+            context.EndPage()
 
-            finally:
-                context.EndPage()
-        finally:
-            context.EndDoc()
+        except BaseException:
+            context.AbortDoc()
+            raise
+
+        context.EndDoc()
 
     def _calculate_print_rect(self, context, img_size: tuple[int, int]) -> tuple:
         """Calculate the rectangle for centered, scaled printing.
