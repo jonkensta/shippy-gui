@@ -72,12 +72,25 @@ class WindowsPrinterBackendTests(unittest.TestCase):
             WindowsPrinterBackend.parse_name_identifier("Office"), (None, None)
         )
 
-    def test_parse_name_identifier_ignores_a_trailing_word_with_no_digits(self):
-        """An ordinary descriptive name is not a serial number."""
-        self.assertEqual(
-            WindowsPrinterBackend.parse_name_identifier("Front Desk Printer"),
-            (None, None),
+    def test_an_all_letter_serial_still_matches_its_unit(self):
+        """Nothing requires a USB serial to contain a digit."""
+        device_ids = {r"USB\VID_2E3C&PID_5760\ABCDEF"}
+
+        keys = WindowsPrinterBackend.matching_device_keys(
+            "Label Printer ABCDEF", device_ids
         )
+
+        self.assertEqual(keys, {("2E3C", "5760", "ABCDEF")})
+
+    def test_a_descriptive_trailing_word_matches_no_device(self):
+        """Exact-tail equality, not the shape of the word, is what gates a match."""
+        device_ids = {r"USB\VID_2E3C&PID_5760\Q529E65K5250028"}
+
+        keys = WindowsPrinterBackend.matching_device_keys(
+            "Front Desk Printer", device_ids
+        )
+
+        self.assertEqual(keys, set())
 
     def test_serial_named_queues_bind_only_to_their_own_unit(self):
         """Two printers of one model share a VID:PID; only serials separate them."""

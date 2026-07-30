@@ -8,7 +8,7 @@ Usage:
         diagnose-printers
 """
 
-# pylint: disable=import-outside-toplevel,duplicate-code
+# pylint: disable=import-outside-toplevel
 
 import re
 import sys

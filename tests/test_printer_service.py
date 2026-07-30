@@ -46,7 +46,7 @@ class PrinterServiceTests(unittest.TestCase):
     def test_get_available_printers_marks_default_and_usb_suffix(self):
         service = PrinterService(
             backend=FakePrinterBackend(
-                printers=["iDPRT_SP310_20d1:7008", "Office Printer"],
+                printers=["iDPRT_SP310_20d1:7008", "Office"],
                 default_printer="iDPRT_SP310_20d1:7008",
             )
         )
@@ -75,16 +75,15 @@ class PrinterServiceTests(unittest.TestCase):
         self.assertIsNone(printer.usb_id)
         self.assertEqual(printer.transport.value, "usb")
 
-    def test_ordinary_trailing_word_is_not_mistaken_for_a_serial(self):
+    def test_a_name_without_an_identifier_reports_no_transport(self):
         service = PrinterService(
-            backend=FakePrinterBackend(
-                printers=["Office Printer"], default_printer=None
-            )
+            backend=FakePrinterBackend(printers=["Office"], default_printer=None)
         )
 
         printer = service.get_available_printers()[0]
 
         self.assertIsNone(printer.serial)
+        self.assertIsNone(printer.usb_id)
         self.assertIsNone(printer.transport)
 
     def test_two_same_model_units_are_distinguishable_by_serial(self):

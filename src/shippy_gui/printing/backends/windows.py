@@ -86,6 +86,14 @@ class WindowsPrinterBackend(PrinterBackend):
     ) -> tuple[Optional[str], Optional[str]]:
         """Split a queue name's trailing USB identifier.
 
+        The trailing token is only a *candidate* serial. Nothing here rules out
+        an ordinary descriptive word ("Front Desk Printer"), because
+        :meth:`matching_device_keys` already requires the candidate to equal a
+        connected device's instance tail exactly - a word that names no device
+        matches nothing. A stricter rule here (say, requiring a digit) would
+        buy no safety and would hide any printer whose USB serial happens to be
+        all letters.
+
         Returns:
             ``(vid_pid, serial)`` where exactly one is set, or ``(None, None)``
             when the name carries no USB identifier. A VID:PID suffix wins over
@@ -96,9 +104,7 @@ class WindowsPrinterBackend(PrinterBackend):
             return f"{vid_pid.group(1).upper()}:{vid_pid.group(2).upper()}", None
 
         serial = NAME_SERIAL_PATTERN.search(printer_name.rstrip())
-        # Require a digit so ordinary trailing words ("Front Desk Printer") are
-        # not read as serial numbers.
-        if serial and any(char.isdigit() for char in serial.group(1)):
+        if serial:
             return None, serial.group(1).upper()
 
         return None, None
