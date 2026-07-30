@@ -243,5 +243,71 @@ class WindowsPrinterBackendTests(unittest.TestCase):
                 self.assertEqual(self.backend.get_available_printers(), [])
 
 
+class FakeDeviceContext:
+    """Records GDI calls and optionally fails one of them."""
+
+    def __init__(self, failing_call: str | None = None):
+        self.calls: list[str] = []
+        self._failing_call = failing_call
+
+    def _record(self, call: str):
+        self.calls.append(call)
+        if call == self._failing_call:
+            raise RuntimeError(f"{call} failed")
+
+    def StartDoc(self, name):  # pylint: disable=invalid-name,unused-argument
+        self._record("StartDoc")
+
+    def StartPage(self):  # pylint: disable=invalid-name
+        self._record("StartPage")
+
+    def EndPage(self):  # pylint: disable=invalid-name
+        self._record("EndPage")
+
+    def EndDoc(self):  # pylint: disable=invalid-name
+        self._record("EndDoc")
+
+
+class PrintJobTests(unittest.TestCase):
+    """Tests that print-job cleanup never runs ahead of its acquisition."""
+
+    def test_success_path_opens_and_closes_the_job(self):
+        context = FakeDeviceContext()
+
+        with WindowsPrinterBackend._print_job(context, "Shipping Label"):
+            pass
+
+        self.assertEqual(context.calls, ["StartDoc", "StartPage", "EndPage", "EndDoc"])
+
+    def test_body_failure_still_closes_the_job(self):
+        """A failed draw must not abandon an open document in the spooler."""
+        context = FakeDeviceContext()
+
+        with self.assertRaises(ValueError):
+            with WindowsPrinterBackend._print_job(context, "Shipping Label"):
+                raise ValueError("draw failed")
+
+        self.assertEqual(context.calls, ["StartDoc", "StartPage", "EndPage", "EndDoc"])
+
+    def test_start_doc_failure_surfaces_the_real_error(self):
+        """GDI rejects EndPage/EndDoc here, which would mask the real cause."""
+        context = FakeDeviceContext(failing_call="StartDoc")
+
+        with self.assertRaisesRegex(RuntimeError, "StartDoc failed"):
+            with WindowsPrinterBackend._print_job(context, "Shipping Label"):
+                self.fail("body must not run when StartDoc fails")
+
+        self.assertEqual(context.calls, ["StartDoc"])
+
+    def test_start_page_failure_closes_only_the_document(self):
+        context = FakeDeviceContext(failing_call="StartPage")
+
+        with self.assertRaisesRegex(RuntimeError, "StartPage failed"):
+            with WindowsPrinterBackend._print_job(context, "Shipping Label"):
+                self.fail("body must not run when StartPage fails")
+
+        self.assertEqual(context.calls, ["StartDoc", "StartPage", "EndDoc"])
+
+
 if __name__ == "__main__":
     unittest.main()

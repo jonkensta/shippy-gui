@@ -1,10 +1,11 @@
 """Windows printer backend using win32print."""
 
+import contextlib
 import logging
 import re
 import subprocess
 import tempfile
-from typing import Optional
+from typing import Iterator, Optional
 
 from PIL import Image
 
@@ -177,17 +178,35 @@ class WindowsPrinterBackend(PrinterBackend):
             print_rect = self._calculate_print_rect(context, img.size)
 
             # Print the image
-            context.StartDoc("Shipping Label")
-            context.StartPage()
-
-            dib = ImageWin.Dib(img)
-            dib.draw(context.GetHandleOutput(), print_rect)
-
-            context.EndPage()
-            context.EndDoc()
+            with self._print_job(context, "Shipping Label"):
+                dib = ImageWin.Dib(img)
+                dib.draw(context.GetHandleOutput(), print_rect)
 
         finally:
             context.DeleteDC()
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _print_job(context, name: str) -> Iterator[None]:
+        """Open a print job on a device context and close it on the way out.
+
+        Each cleanup is guarded by its own acquisition, because GDI rejects
+        EndPage without StartPage and EndDoc without StartDoc. Calling them
+        unconditionally would turn a StartDoc failure ("spooler unavailable")
+        into a misleading "EndPage without StartPage" and lose the real cause;
+        leaving them out entirely, as this did before, abandoned an open
+        document in the spooler whenever drawing the label raised.
+        """
+        context.StartDoc(name)
+        try:
+            context.StartPage()
+            try:
+                yield
+
+            finally:
+                context.EndPage()
+        finally:
+            context.EndDoc()
 
     def _calculate_print_rect(self, context, img_size: tuple[int, int]) -> tuple:
         """Calculate the rectangle for centered, scaled printing.
