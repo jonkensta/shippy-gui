@@ -1,5 +1,6 @@
 """Worker thread for creating and printing shipping labels."""
 
+import logging
 from typing import Optional
 
 from PySide6.QtCore import QThread, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
@@ -11,6 +12,8 @@ from shippy_gui.core.shipment_workflow import (
     ShipmentWorkflow,
     ShipmentWorkflowStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ShipmentWorker(
@@ -62,7 +65,24 @@ class ShipmentWorker(
         self.shipment = None
 
     def run(self):
-        """Execute the shipment workflow."""
+        """Execute the shipment workflow, reporting any unexpected crash."""
+        try:
+            self._run()
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            # Never die silently: by now postage may have been bought and the
+            # label may have been sent, so tell the volunteer rather than refund.
+            logger.exception("Shipment worker crashed")
+            shipment_id = getattr(self.shipment, "tracking_code", None) or getattr(
+                self.shipment, "id", None
+            )
+            details = f" Shipment: {shipment_id}." if shipment_id else ""
+            self.error.emit(
+                f"Unexpected error: {error}.{details} Postage may already have "
+                "been bought and the label may have been sent to the printer - "
+                "check the printer and EasyPost before trying again."
+            )
+
+    def _run(self):
         prepared_result = self.workflow.prepare_label(
             ShipmentWorkflowInput(
                 from_address=self.from_address,
