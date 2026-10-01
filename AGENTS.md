@@ -34,7 +34,7 @@
 - Keep changes focused and aligned with the existing module boundaries.
 - Prefer small, local edits over broad refactors unless the task requires structural changes.
 - Preserve current PySide6 patterns and signal/slot flow when extending the UI.
-- Keep the postage refund rules in `CLAUDE.md` (Key Patterns): refund only when no label image exists (or it cannot be saved); a label no printer took is saved to the `to-print/` queue with `ibp_printing.save_for_retry` and NOT refunded; a spooled job with a bad outcome is warned about, not refunded.
+- Keep the postage refund rules in `CLAUDE.md` (Key Patterns): refund only when no label image exists (or it cannot be saved); a label no printer took is saved to the `to-print/` queue with `ibp_printing.save_for_retry` and NOT refunded; a spooled job with a bad outcome, or any non-`PrintError` exception from printing, is warned about, not refunded; the Shift+Click dialog path refunds only on cancel.
 - Do not hardcode secrets, API keys, printer names, or machine-specific paths.
 - Treat `config.example.ini` as a template only; real runtime settings belong in `config.ini`.
 - If you change config fields or startup behavior, update `README.md` and the example config in the same unit of work.

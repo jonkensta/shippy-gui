@@ -225,6 +225,10 @@ Printer discovery and direct printing are provided by `ibp-printing`:
 - **Linux**: Uses CUPS via `lp`; every CUPS queue is listed.
 
 Shift + Click on "Create Label" uses the Qt system print dialog instead.
+Canceling that dialog refunds the postage. If printing cannot even start, the
+label is saved to `Downloads\to-print\` like any other label no printer took;
+if it fails after printing started, you get the "Check The Printer" warning and
+nothing is refunded.
 
 ### Printer logs
 
@@ -257,9 +261,11 @@ refunded) and the label, with the IBP logo, is saved to the print queue folder
 - If the IBP label watcher (from ibp-printing) is running, the label prints
   automatically as soon as a label printer is working - plug in or fix the
   printer and wait.
-- Otherwise, print that file yourself once the printer works.
-- If the package will not ship after all, refund the shipment in EasyPost (the
-  dialog shows its tracking number) and delete the saved file.
+- **Before** you print that file yourself, or refund the shipment in EasyPost
+  (the dialog shows its tracking number) because the package will not ship,
+  delete the file from `to-print\` first, so the watcher does not print it too.
+  If the file is already gone, the watcher has picked it up: check the printer
+  (and the `printed\` and `check-printer\` folders) first.
 - Check that your printer is online and selected correctly.
 
 The app only refunds automatically when the label could not be downloaded or
@@ -267,7 +273,8 @@ prepared after buying postage, or when it could not even be saved to the queue.
 
 ### "Check The Printer" warning
 The label reached the print queue, but the queue then reported a problem (or
-it could not be confirmed that the job got there). The postage is **not**
+it could not be confirmed that the job got there, or printing failed with an
+unexpected error after the label may have been sent). The postage is **not**
 refunded and the label is **not** queued again, because it may still print.
 Check the printer before reprinting so you do not end up with two labels.
 
