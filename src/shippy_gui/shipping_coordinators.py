@@ -190,6 +190,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             lambda message: self._status_presenter.set_status(message, "warning")
         )
         self.worker.success.connect(self._on_shipment_success)
+        self.worker.success_with_warning.connect(self._on_shipment_success_with_warning)
         self.worker.error.connect(self._on_shipment_error)
         self.worker.finished.connect(self._on_shipment_finished)
         self.worker.label_ready.connect(self._on_label_ready)
@@ -228,6 +229,12 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._address_form.clear()
         self._shipment_controls.reset()
         self._address_search_input.setFocus()
+
+    def _on_shipment_success_with_warning(self, message: str) -> None:
+        """Handle a label that was spooled but may not have printed."""
+        self._on_shipment_success(message)
+        self._status_presenter.set_status(message, "warning")
+        QMessageBox.warning(self._parent_widget, "Check The Printer", message)
 
     def _on_shipment_error(self, message: str) -> None:
         """Handle shipment error."""

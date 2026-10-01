@@ -16,7 +16,7 @@ Inside Books Project is an Austin-based community service volunteer organization
 - **Google Maps Integration**: Address autocomplete and geocoding for accurate address entry
 - **EasyPost API Integration**: Utilizes the EasyPost API for purchasing postage and generating Library Mail shipping labels
 - **Label Printing**: Generates and prints postage labels with IBP logo overlay when available
-- **Cross-Platform Printing**: Supports Windows (win32print) and Linux (CUPS) printing
+- **Cross-Platform Printing**: Supports Windows (win32print) and Linux (CUPS) printing via the shared [ibp-printing](https://github.com/jonkensta/ibp-printing) library
 - **Settings Dialog**: GUI for configuring API keys and return address
 - **Error Handling**: Automatic refund on print failure, comprehensive error messages
 - **Async Operations**: Non-blocking UI using QThread for network operations
@@ -34,6 +34,11 @@ To set up the `shippy-gui` application, ensure you have Python 3.12+ and [uv](ht
     git clone https://github.com/jonkensta/shippy-gui.git
     cd shippy-gui
     ```
+
+    Printing comes from the shared `ibp-printing` library. Until it is
+    published, `pyproject.toml` points at a local checkout, so clone it next to
+    `shippy-gui` (i.e. at `../ibp-printing`). Running straight from git with
+    `uvx` (Option 2) needs `ibp-printing` to be published first.
 
 2.  **Create and activate a virtual environment:**
 
@@ -54,12 +59,14 @@ To set up the `shippy-gui` application, ensure you have Python 3.12+ and [uv](ht
 
     For platform-specific printing support, add the appropriate extra:
 
-    **Linux (CUPS):**
+    **Linux (CUPS):** installs `pycups` (needs the libcups development
+    headers; without it ibp-printing falls back to `lpstat`/`lp`)
     ```bash
     uv sync --extra linux
     ```
 
-    **Windows (win32print):**
+    **Windows (win32print):** `pywin32` and `WMI` are installed automatically on
+    Windows; the extra is kept for compatibility
     ```bash
     uv sync --extra windows
     ```
@@ -207,8 +214,24 @@ To create the shortcut:
 
 ## Platform Support
 
-- **Windows**: Uses win32print for printing (requires `--extra windows` during installation)
-- **Linux**: Uses CUPS for printing via `lp` command (requires `--extra linux` during installation)
+Printer discovery and direct printing are provided by `ibp-printing`:
+
+- **Windows**: Uses win32print. Only USB label printers are listed: the print
+  queue name must end with the printer's USB ID (e.g. `Zebra 20d1:7008`,
+  `Zebra_20d1:7008` or `Zebra-20d1:7008`) and that USB device must be plugged
+  in. Printers whose USB device or queue reports a problem are still listed,
+  just lower down.
+- **Linux**: Uses CUPS via `lp`; every CUPS queue is listed.
+
+Shift + Click on "Create Label" uses the Qt system print dialog instead.
+
+### Printer logs
+
+Every discovery and print attempt is logged in detail by `ibp-printing` to
+`printer.log` (human readable) and `printer.jsonl` (one JSON object per line)
+in `%LOCALAPPDATA%\ibp-printing\logs` on Windows
+(`~/.local/state/ibp-printing/logs` on Linux). Printer messages at INFO and
+above also appear in the shippy-gui log file.
 
 ## Keyboard Shortcuts
 
@@ -228,7 +251,12 @@ To create the shortcut:
 ### Print failure with refund
 - Check that your printer is online and selected correctly
 - Verify printer name matches exactly (case-sensitive on some systems)
-- The shipment is automatically refunded if printing fails
+- The shipment is automatically refunded if the label cannot be sent to the printer
+
+### Printer missing from the list
+- Click **Refresh** after plugging in or turning on the printer
+- Run `uv run diagnose-printers` to see every print queue and why it is or is not listed
+- Send the `printer.log`/`printer.jsonl` files (see [Printer logs](#printer-logs)) when reporting a problem
 
 ### Google Maps autocomplete not working
 - Verify your Google Maps API key in Settings

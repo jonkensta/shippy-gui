@@ -102,8 +102,10 @@ def _reload_config_or_exit(config_path: str):
 
 def _configure_app_logging(config_path: str, config) -> None:
     """Configure logging using config settings."""
-    configure_logging(resolve_log_path(config_path, config))
-    logging.getLogger(__name__).info("Shippy GUI started")
+    printer_log_dir = configure_logging(resolve_log_path(config_path, config))
+    logging.getLogger(__name__).info(
+        "Shippy GUI started; printer logs in %s", printer_log_dir
+    )
 
 
 if __name__ == "__main__":

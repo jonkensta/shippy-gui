@@ -34,12 +34,8 @@ src/shippy_gui/
   workers/
     shipment_worker.py # QThread worker for async shipment creation
   printing/
-    printer_manager.py
-    printer_service.py
-    backends/
-      base.py
-      linux.py         # CUPS printing
-      windows.py       # win32print printing
+    printer_manager.py # Thin adapters over ibp_printing + Qt print dialog
+    models.py          # PrinterInfo (UI model built from ibp_printing candidates)
   assets/
     logo.jpg           # IBP logo overlaid on labels
   config.example.ini   # Bundled template; also in repo root for dev
@@ -51,6 +47,7 @@ src/shippy_gui/
 uv venv
 source .venv/bin/activate
 uv sync --extra linux   # or --extra windows on Windows
+# ibp-printing is a path dependency until published: check it out at ../ibp-printing
 uv run pre-commit install
 ```
 
@@ -71,7 +68,7 @@ shippy-gui
 ## Code Quality
 
 Pre-commit hooks run on every commit:
-- `pylint` — `uv run pylint src`
+- `pylint` — `uv run pylint src` (pylint/mypy are not project deps; use `uv run --with pylint --with mypy ...` if they are not installed)
 - `mypy` — `uv run mypy src`
 - `black --check` — `uv run black --check src`
 
@@ -100,5 +97,7 @@ QT_QPA_PLATFORM=offscreen uv run python -m unittest discover -s tests
 
 - Configuration is validated with Pydantic models (`core/models.py`); always use `ConfigManager` or `load_config()` — never read `config.ini` directly.
 - Network operations (EasyPost, Google Maps) run in `QThread` workers to keep the UI non-blocking.
-- Printing is platform-dispatched through `printing/backends/`; do not add platform checks outside those modules.
-- The app automatically refunds the EasyPost shipment if printing fails — preserve this invariant when touching `shipment_worker.py`.
+- Printing (discovery, platform backends, USB VID:PID matching, job tracking, printer logs) lives in the shared `ibp-printing` library (`ibp_printing`). `printing/printer_manager.py` is only a thin adapter; fix printer behaviour in ibp-printing, not here, and do not add platform checks to shippy-gui.
+- `ibp_printing.configure_logging()` is called at startup (`core/logging.py`), writing `printer.log`/`printer.jsonl` to `%LOCALAPPDATA%\ibp-printing\logs`; INFO+ printer records also reach the app log.
+- Tests fake printers with `ibp_printing.set_backend(FakeBackend())` (see `tests/test_printer_manager.py`); reset with `set_backend(None)`.
+- The app automatically refunds the EasyPost shipment if printing fails — preserve this invariant when touching `shipment_worker.py` / `core/shipment_workflow.py`. `ibp_printing.PrintError` is a `RuntimeError` and triggers the refund; a spooled job whose tracked outcome is bad is not refunded (the label may still print) but is reported to the volunteer via `ShipmentWorker.success_with_warning` (warning status + dialog).

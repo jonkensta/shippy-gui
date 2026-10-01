@@ -6,9 +6,15 @@ import os
 from typing import Any, Callable, Optional
 
 import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
+import ibp_printing
 from PIL import Image
 
-from shippy_gui.core.constants import LOGO_PASTE_X, LOGO_PASTE_Y, OUNCES_PER_POUND
+from shippy_gui.core.constants import (
+    LOGO_PASTE_X,
+    LOGO_PASTE_Y,
+    OUNCES_PER_POUND,
+    PRINT_JOB_NAME,
+)
 from shippy_gui.core.misc import grab_png_from_url
 from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
 from shippy_gui.core.services import ShipmentService
@@ -35,6 +41,9 @@ class ShipmentWorkflowResult:
     shipment: Optional[Any] = None
     image: Optional[Image.Image] = None
     refund_requested: bool = False
+    # Set when the label was spooled (so no refund) but the print queue then
+    # reported a bad outcome; the UI must show it prominently.
+    print_warning: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -134,17 +143,28 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
 
         try:
             progress("Printing label...")
-            print_image(prepared_result.image, printer_name)
+            print_result = print_image(
+                prepared_result.image,
+                printer_name,
+                job_name=f"{PRINT_JOB_NAME} {prepared_result.shipment.tracking_code}",
+            )
+            tracking = prepared_result.shipment.tracking_code
+            if not print_result.outcome.ok:
+                warning = _print_outcome_warning(printer_name, print_result)
+                return ShipmentWorkflowResult(
+                    status=ShipmentWorkflowStatus.SUCCESS,
+                    message=f"{warning} Tracking: {tracking}",
+                    shipment=prepared_result.shipment,
+                    image=prepared_result.image,
+                    print_warning=warning,
+                )
             return ShipmentWorkflowResult(
                 status=ShipmentWorkflowStatus.SUCCESS,
-                message=(
-                    "Label printed successfully! "
-                    f"Tracking: {prepared_result.shipment.tracking_code}"
-                ),
+                message=f"Label printed successfully! Tracking: {tracking}",
                 shipment=prepared_result.shipment,
                 image=prepared_result.image,
             )
-        except RuntimeError as error:
+        except RuntimeError as error:  # includes ibp_printing.PrintError
             return self.refund_after_failure(
                 prepared_result.shipment,
                 f"Printing error: {error}",
@@ -187,3 +207,15 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
                 message=f"{error_message}. Refund also failed: {refund_error}",
                 shipment=shipment,
             )
+
+
+def _print_outcome_warning(
+    printer_name: str, print_result: ibp_printing.PrintResult
+) -> str:
+    """Explain a spooled job whose tracked outcome suggests no label came out."""
+    return (
+        f"Label was sent to {printer_name} but the print queue reported "
+        f"'{print_result.outcome.value}'. It may NOT have printed - check the "
+        "printer before reprinting; postage was NOT refunded. "
+        f"Printer logs: {ibp_printing.default_log_dir()}"
+    )

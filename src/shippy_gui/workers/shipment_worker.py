@@ -21,6 +21,8 @@ class ShipmentWorker(
     # Signals
     progress = Signal(str)  # Progress message
     success = Signal(str)  # Success message
+    # Spooled (so not refunded) but the print queue reported a problem.
+    success_with_warning = Signal(str)
     error = Signal(str)  # Error message
     warning = Signal(str)  # Warning message (non-blocking)
     label_ready = Signal(object, str, object)  # (image, printer_name, shipment_object)
@@ -86,7 +88,10 @@ class ShipmentWorker(
             on_progress=self.progress.emit,
         )
         if print_result.status is ShipmentWorkflowStatus.SUCCESS:
-            self.success.emit(print_result.message)
+            if print_result.print_warning:
+                self.success_with_warning.emit(print_result.message)
+            else:
+                self.success.emit(print_result.message)
             return
 
         self.error.emit(print_result.message)

@@ -1,31 +1,42 @@
-"""Printer detection and management for shippy-gui.
+"""Printer discovery and printing for shippy-gui.
 
-This module provides the public API for printer operations. It delegates
-platform-specific operations to the PrinterService abstraction.
+Discovery and direct printing are thin adapters over the shared
+``ibp_printing`` library, which owns the platform backends, the USB label
+printer matching rules, and the verbose printer logs. Only the Qt print dialog
+path lives here.
 """
 
 import logging
 from typing import Optional
 
+import ibp_printing
 from PIL import Image, ImageQt
 from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtGui import QPainter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QWidget  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
+from shippy_gui.core.constants import PRINT_JOB_NAME, PRINT_TRACK_TIMEOUT_S
 from shippy_gui.printing.models import PrinterInfo
-from shippy_gui.printing.printer_service import get_printer_service
 
 logger = logging.getLogger(__name__)
 
 
 def get_available_printers() -> list[PrinterInfo]:
-    """Get available printers on the system.
+    """Get usable label printers, best first.
+
+    On Windows these are queues whose name ends in a USB ``VID:PID`` suffix and
+    whose USB device is present; on Linux every CUPS queue is listed.
 
     Returns:
-        List of discovered printers. Empty list if no printers found or on error.
+        List of discovered printers. Empty list if none are found or on error.
     """
-    return get_printer_service().get_available_printers()
+    try:
+        candidates = ibp_printing.discover().usable
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("Printer discovery failed")
+        return []
+    return [PrinterInfo.from_candidate(candidate) for candidate in candidates]
 
 
 def get_default_printer() -> Optional[str]:
@@ -34,20 +45,48 @@ def get_default_printer() -> Optional[str]:
     Returns:
         Default printer name, or None if no default is set.
     """
-    return get_printer_service().get_default_printer()
+    try:
+        return ibp_printing.get_default_printer()
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("Default printer lookup failed")
+        return None
 
 
-def print_image(img: Image.Image, printer_name: str) -> None:
+def print_image(
+    img: Image.Image, printer_name: str, *, job_name: Optional[str] = None
+) -> ibp_printing.PrintResult:
     """Print an image to the specified printer.
+
+    Blocks for up to ``PRINT_TRACK_TIMEOUT_S`` while the spooled job is
+    followed, so call it from a worker thread. The tracked outcome is logged
+    but does not raise: once the spooler has accepted the job, the label may
+    still come out (e.g. after paper is reloaded).
 
     Args:
         img: PIL Image to print
         printer_name: Name of the printer to use
+        job_name: Optional spooler job name (defaults to ``PRINT_JOB_NAME``)
+
+    Returns:
+        The ibp-printing result, including the tracked job outcome.
 
     Raises:
-        RuntimeError: If printing fails
+        ibp_printing.PrintError: (a RuntimeError) if the job could not be spooled
     """
-    get_printer_service().print_image(img, printer_name)
+    result = ibp_printing.print_image(
+        img,
+        printer_name,
+        job_name=job_name or PRINT_JOB_NAME,
+        track_timeout_s=PRINT_TRACK_TIMEOUT_S,
+    )
+    if not result.outcome.ok:
+        logger.warning(
+            "Print job on %s ended as %s: %s",
+            printer_name,
+            result.outcome.value,
+            "; ".join(result.history) or "(no history)",
+        )
+    return result
 
 
 def print_image_with_dialog(
@@ -75,6 +114,7 @@ def print_image_with_dialog(
     dialog.setWindowTitle("Print Shipping Label")
 
     if dialog.exec() == QPrintDialog.DialogCode.Accepted:
+        logger.info("Printing via system dialog to %s", printer.printerName())
         if _print_with_qprinter(img, printer):
             return "printed"
         return "failed"

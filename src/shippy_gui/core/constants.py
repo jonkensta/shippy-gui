@@ -4,29 +4,18 @@
 # Printing Constants
 # ============================================================================
 
-# Page dimensions in points (1 point = 1/72 inch)
-# Letter size: 8.5" x 11"
-PAGE_WIDTH_POINTS = 612
-PAGE_HEIGHT_POINTS = 792
+# Page layout, scaling and platform details are owned by ibp-printing.
 
-# Margin in points (0.25 inch = 18 points)
-PAGE_MARGIN_POINTS = 18
+# Spooler job name for quick prints (the tracking code is appended when known).
+PRINT_JOB_NAME = "Shipping Label"
 
-# Default DPI for image scaling calculations
-DEFAULT_PRINT_DPI = 300
-
-# Points to inches conversion factor
-POINTS_PER_INCH = 72
-
-# Scale factor to avoid edge clipping when printing
-PRINT_SCALE_FACTOR = 0.95
-
-# Windows GDI device capability constants
-# See: https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getdevicecaps
-WIN_DEVCAP_HORZRES = 8  # Horizontal resolution in pixels
-WIN_DEVCAP_VERTRES = 10  # Vertical resolution in pixels
-WIN_DEVCAP_PHYSICALWIDTH = 110  # Physical width in device units
-WIN_DEVCAP_PHYSICALHEIGHT = 111  # Physical height in device units
+# How long a quick print follows the spooled job before reporting success.
+# Tracking only adds detail to the printer logs: the call returns as soon as the
+# job completes or leaves the queue, and an errored or timed-out job never
+# triggers a refund (the label may still print once the printer is fixed).
+# Kept above ibp-printing's 10 s error grace period so a stuck job is logged
+# as an error rather than a timeout.
+PRINT_TRACK_TIMEOUT_S = 15.0
 
 
 # ============================================================================

@@ -14,22 +14,30 @@ dependencies = [
     "requests>=2.33.0",
     "googlemaps>=4.10.0",
     "pydantic>=2.12.5",
+    "ibp-printing",
 ]
 
 [project.optional-dependencies]
-windows = [
-    "pywin32>=310",
-    "WMI>=1.5.1",
-]
+# Kept so existing `--extra windows` install commands keep working. pywin32 and
+# WMI are now pulled in by ibp-printing itself (with a win32 platform marker).
+windows = []
 linux = [
-    "pycups>=2.0.4",
+    "ibp-printing[linux]",
 ]
 
 [project.scripts]
-diagnose-printers = "shippy_gui.scripts.diagnose_printers:main"
+# Same tool as ibp-printing's `ibp-print-diag`; name kept for existing docs/shortcuts.
+diagnose-printers = "ibp_printing.diagnostics:main"
 
 [project.gui-scripts]
 shippy-gui = "shippy_gui.__main__:main"
+
+[tool.uv.sources]
+# TODO: switch to
+#   ibp-printing = { git = "https://github.com/jonkensta/ibp-printing", tag = "v0.1.0" }
+# once ibp-printing is published. Until then it must be checked out next to
+# shippy-gui.
+ibp-printing = { path = "../ibp-printing", editable = true }
 
 [build-system]
 requires = ["uv_build>=0.9.21,<0.10.0"]

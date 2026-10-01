@@ -15,7 +15,8 @@
 - `src/shippy_gui/shipping_tab.py`: main shipping workflow UI.
 - `src/shippy_gui/settings_dialog.py`: configuration editing and validation UI.
 - `src/shippy_gui/core/`: config, models, constants, logging, fonts, and service helpers.
-- `src/shippy_gui/printing/`: printer backends and printer service logic.
+- `src/shippy_gui/printing/`: thin adapters over the shared `ibp-printing` library (`ibp_printing`), plus the Qt print dialog path. Printer discovery, platform backends, and printer logs live in ibp-printing.
+- The `diagnose-printers` console script is `ibp_printing.diagnostics:main` (same as ibp-printing's `ibp-print-diag`).
 - `src/shippy_gui/widgets/`: reusable UI widgets.
 - `src/shippy_gui/workers/`: background worker logic for network and label operations.
 - `config.example.ini`: development example config.
@@ -23,8 +24,9 @@
 ## Environment and Setup
 
 - Create the environment with `uv venv` and install dependencies with `uv sync`.
-- Install Linux printing dependencies with `uv sync --extra linux` when working on Linux printing support.
-- Install Windows printing dependencies with `uv sync --extra windows` when working on Windows printing support.
+- `ibp-printing` is a path dependency (`../ibp-printing`) until it is published; check it out next to this repository.
+- Install Linux printing dependencies with `uv sync --extra linux` (pycups via `ibp-printing[linux]`) when working on Linux printing support.
+- `uv sync --extra windows` still works; pywin32 and WMI now come from ibp-printing automatically on Windows.
 - Run the app from the repository root so `config.ini` resolves correctly.
 
 ## Working Rules
@@ -38,11 +40,12 @@
 
 ## Validation
 
-- There is no dedicated test suite in the repository today.
+- Unit tests live in `tests/`: `QT_QPA_PLATFORM=offscreen uv run python -m unittest discover -s tests`.
+- Printing tests use a fake `ibp_printing.PrinterBackend` installed with `ibp_printing.set_backend()`.
 - For code changes, run targeted validation that matches the area you touched.
 - Use import or startup checks for Python modules you changed.
 - Run an application launch smoke check when changing UI or startup code.
-- Run platform-specific printing checks only when touching the relevant backend.
+- Printer backends now live in ibp-printing; change printer behaviour there, not in shippy-gui.
 - If you cannot run a meaningful validation step, state that explicitly.
 
 ## Git Workflow
