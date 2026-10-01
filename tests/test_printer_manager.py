@@ -6,6 +6,7 @@ tests only check how shippy-gui maps them, using a fake backend.
 
 import unittest
 from typing import Optional
+from unittest.mock import Mock, patch
 
 import ibp_printing
 from ibp_printing import (
@@ -19,6 +20,7 @@ from ibp_printing import (
     UsbDevice,
 )
 from PIL import Image
+from PySide6.QtCore import QRectF  # pylint: disable=no-name-in-module
 
 from shippy_gui.core.constants import PRINT_TRACK_TIMEOUT_S
 from shippy_gui.printing import printer_manager
@@ -142,6 +144,72 @@ class PrinterManagerTests(unittest.TestCase):
 
         with self.assertRaises(RuntimeError), self.assertLogs("ibp_printing", "ERROR"):
             printer_manager.print_image(Image.new("RGB", (4, 6)), "Alpha")
+
+
+class DialogPrintTests(unittest.TestCase):
+    """_print_with_qprinter separates 'nothing sent' from 'may have printed'."""
+
+    def _run(self, painter: Mock, image_qt_error: Optional[Exception] = None):
+        printer = Mock()
+        printer.pageRect.return_value = QRectF(0, 0, 400, 600)
+        patches = [patch.object(printer_manager, "QPainter", return_value=painter)]
+        if image_qt_error is not None:
+            patches.append(
+                patch.object(
+                    printer_manager.ImageQt, "ImageQt", side_effect=image_qt_error
+                )
+            )
+        for patcher in patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return printer_manager._print_with_qprinter(  # pylint: disable=protected-access
+            Image.new("RGB", (40, 60), "white"), printer
+        )
+
+    @staticmethod
+    def _painter(begin=True, end=True, draw_error=None) -> Mock:
+        painter = Mock()
+        painter.begin.return_value = begin
+        painter.end.return_value = end
+        if draw_error is not None:
+            painter.drawImage.side_effect = draw_error
+        return painter
+
+    def test_printed(self):
+        painter = self._painter()
+        self.assertEqual(self._run(painter), printer_manager.DialogPrintStatus.PRINTED)
+        painter.end.assert_called_once_with()
+
+    def test_begin_failure_is_not_sent(self):
+        painter = self._painter(begin=False)
+        with self.assertLogs("shippy_gui.printing.printer_manager", "WARNING"):
+            status = self._run(painter)
+        self.assertEqual(status, printer_manager.DialogPrintStatus.NOT_SENT)
+        painter.drawImage.assert_not_called()
+
+    def test_failure_before_begin_is_not_sent(self):
+        painter = self._painter()
+        with self.assertLogs("shippy_gui.printing.printer_manager", "ERROR"):
+            status = self._run(painter, image_qt_error=ValueError("bad image"))
+        self.assertEqual(status, printer_manager.DialogPrintStatus.NOT_SENT)
+        painter.begin.assert_not_called()
+
+    def test_failure_after_begin_is_uncertain(self):
+        painter = self._painter(draw_error=RuntimeError("draw failed"))
+        with self.assertLogs("shippy_gui.printing.printer_manager", "ERROR"):
+            status = self._run(painter)
+        self.assertEqual(status, printer_manager.DialogPrintStatus.UNCERTAIN)
+        painter.end.assert_called_once_with()
+
+    def test_end_failure_is_uncertain(self):
+        painter = self._painter(end=False)
+        with self.assertLogs("shippy_gui.printing.printer_manager", "WARNING"):
+            status = self._run(painter)
+        self.assertEqual(status, printer_manager.DialogPrintStatus.UNCERTAIN)
+
+    def test_statuses_compare_to_legacy_strings(self):
+        self.assertEqual(printer_manager.DialogPrintStatus.PRINTED, "printed")
+        self.assertEqual(printer_manager.DialogPrintStatus.CANCELED, "canceled")
 
 
 if __name__ == "__main__":

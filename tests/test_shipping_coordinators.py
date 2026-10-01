@@ -1,6 +1,7 @@
 """Unit tests for shipping tab coordinators and status presentation."""
 
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import Qt
@@ -15,6 +16,7 @@ from shippy_gui.core.models import (
     RecipientAddress,
     ReturnAddressConfig,
 )
+from shippy_gui.printing.printer_manager import DialogPrintStatus
 from shippy_gui.shipping_coordinators import (
     AddressLookupCoordinator,
     ShipmentFlowCoordinator,
@@ -270,33 +272,95 @@ class ShippingCoordinatorTests(unittest.TestCase):
         self.assertEqual(mock_warning.call_args.args[1], "Label Did Not Print")
         self.assertIn("The label did NOT print", mock_warning.call_args.args[2])
 
-    @patch("shippy_gui.shipping_coordinators.print_image_with_dialog")
-    def test_shipment_flow_refunds_after_dialog_failure(self, mock_print_dialog):
-        mock_print_dialog.return_value = "failed"
-        parent = QWidget()
-        search_input = QLineEdit()
-        address_form = Mock(spec=AddressForm)
-        shipment_controls = Mock(spec=ShipmentControls)
+    def _dialog_coordinator(self, shipment_service):
+        """A coordinator wired for the Shift+Click dialog path."""
         status_label = QLabel()
-        presenter = ShippingStatusPresenter(status_label)
-        shipment_service = Mock()
         coordinator = ShipmentFlowCoordinator(
-            parent_widget=parent,
-            address_search_input=search_input,
-            address_form=address_form,
-            shipment_controls=shipment_controls,
-            status_presenter=presenter,
+            parent_widget=QWidget(),
+            address_search_input=QLineEdit(),
+            address_form=Mock(spec=AddressForm),
+            shipment_controls=Mock(spec=ShipmentControls),
+            status_presenter=ShippingStatusPresenter(status_label),
             get_config=lambda: None,
             get_shipment_service=lambda: shipment_service,
             get_logo_path=lambda: None,
         )
         shipment = Mock(id="shp_123")
         shipment.tracking_code = "TRACK123"
+        return coordinator, status_label, shipment
+
+    @patch("shippy_gui.shipping_coordinators.print_image_with_dialog")
+    def test_dialog_cancel_refunds(self, mock_print_dialog):
+        mock_print_dialog.return_value = DialogPrintStatus.CANCELED
+        shipment_service = Mock()
+        coordinator, status_label, shipment = self._dialog_coordinator(shipment_service)
 
         coordinator._on_label_ready(object(), "Alpha 20d1:7008", shipment)
 
         shipment_service.refund_shipment.assert_called_once_with("shp_123")
-        self.assertEqual(status_label.text(), "Print failed. Refunded.")
+        self.assertEqual(status_label.text(), "Print canceled. Refunded.")
+
+    @patch("shippy_gui.shipping_coordinators.QMessageBox")
+    @patch("shippy_gui.core.shipment_workflow.ibp_printing.save_for_retry")
+    @patch("shippy_gui.shipping_coordinators.print_image_with_dialog")
+    def test_dialog_not_sent_saves_label_without_refund(
+        self, mock_print_dialog, mock_save, mock_box
+    ):
+        mock_print_dialog.return_value = DialogPrintStatus.NOT_SENT
+        mock_save.return_value = Path("/home/v/Downloads/to-print/TRACK123.png")
+        shipment_service = Mock()
+        coordinator, status_label, shipment = self._dialog_coordinator(shipment_service)
+        image = object()
+
+        coordinator._on_label_ready(image, "Alpha 20d1:7008", shipment)
+
+        mock_save.assert_called_once_with(image, name="TRACK123")
+        shipment_service.refund_shipment.assert_not_called()
+        self.assertIn("did NOT print", status_label.text())
+        mock_box.warning.assert_called_once()
+        self.assertEqual(mock_box.warning.call_args.args[1], "Label Did Not Print")
+        self.assertIn("DELETE it from", mock_box.warning.call_args.args[2])
+
+    @patch("shippy_gui.shipping_coordinators.QMessageBox")
+    @patch(
+        "shippy_gui.core.shipment_workflow.ibp_printing.save_for_retry",
+        side_effect=OSError("disk full"),
+    )
+    @patch("shippy_gui.shipping_coordinators.print_image_with_dialog")
+    def test_dialog_not_sent_refunds_when_save_fails(
+        self, mock_print_dialog, _mock_save, mock_box
+    ):
+        mock_print_dialog.return_value = DialogPrintStatus.NOT_SENT
+        shipment_service = Mock()
+        coordinator, _status_label, shipment = self._dialog_coordinator(
+            shipment_service
+        )
+
+        with self.assertLogs("shippy_gui.core.shipment_workflow", "ERROR"):
+            coordinator._on_label_ready(object(), "Alpha 20d1:7008", shipment)
+
+        shipment_service.refund_shipment.assert_called_once_with("shp_123")
+        mock_box.critical.assert_called_once()
+        self.assertIn("Refund requested", mock_box.critical.call_args.args[2])
+
+    @patch("shippy_gui.shipping_coordinators.QMessageBox")
+    @patch("shippy_gui.core.shipment_workflow.ibp_printing.save_for_retry")
+    @patch("shippy_gui.shipping_coordinators.print_image_with_dialog")
+    def test_dialog_failure_after_start_warns_without_refund(
+        self, mock_print_dialog, mock_save, mock_box
+    ):
+        mock_print_dialog.return_value = DialogPrintStatus.UNCERTAIN
+        shipment_service = Mock()
+        coordinator, status_label, shipment = self._dialog_coordinator(shipment_service)
+
+        coordinator._on_label_ready(object(), "Alpha 20d1:7008", shipment)
+
+        shipment_service.refund_shipment.assert_not_called()
+        mock_save.assert_not_called()
+        mock_box.warning.assert_called_once()
+        self.assertEqual(mock_box.warning.call_args.args[1], "Check The Printer")
+        self.assertIn("may or may NOT have printed", status_label.text())
+        self.assertIn("TRACK123", status_label.text())
 
 
 if __name__ == "__main__":

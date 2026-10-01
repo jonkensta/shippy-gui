@@ -6,6 +6,7 @@ printer matching rules, and the verbose printer logs. Only the Qt print dialog
 path lives here.
 """
 
+from enum import Enum
 import logging
 from typing import Optional
 
@@ -20,6 +21,23 @@ from shippy_gui.core.constants import PRINT_JOB_NAME, PRINT_TRACK_TIMEOUT_S
 from shippy_gui.printing.models import PrinterInfo
 
 logger = logging.getLogger(__name__)
+
+
+class DialogPrintStatus(str, Enum):
+    """What happened to a label printed through the Qt print dialog.
+
+    A ``str`` enum, so it still compares equal to the plain strings
+    ``"printed"`` and ``"canceled"`` returned before.
+    """
+
+    # Drawing finished and QPainter.end() reported success.
+    PRINTED = "printed"
+    # The volunteer closed the dialog without printing.
+    CANCELED = "canceled"
+    # Failed before QPainter.begin() succeeded: nothing was sent to a printer.
+    NOT_SENT = "not_sent"
+    # Failed after QPainter.begin() succeeded: the page may still print.
+    UNCERTAIN = "uncertain"
 
 
 def get_available_printers() -> list[PrinterInfo]:
@@ -93,7 +111,7 @@ def print_image_with_dialog(
     img: Image.Image,
     parent_widget: QWidget,
     preferred_printer_name: Optional[str] = None,
-) -> str:
+) -> DialogPrintStatus:
     """Show system print dialog and print image if accepted.
 
     This function uses Qt's QPrintDialog for cross-platform dialog printing.
@@ -104,7 +122,8 @@ def print_image_with_dialog(
         preferred_printer_name: Optional name of the printer to pre-select
 
     Returns:
-        One of "printed", "failed", or "canceled"
+        PRINTED, CANCELED, NOT_SENT (nothing reached a printer) or UNCERTAIN
+        (failed after printing started, so the label may still come out).
     """
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     if preferred_printer_name:
@@ -115,14 +134,12 @@ def print_image_with_dialog(
 
     if dialog.exec() == QPrintDialog.DialogCode.Accepted:
         logger.info("Printing via system dialog to %s", printer.printerName())
-        if _print_with_qprinter(img, printer):
-            return "printed"
-        return "failed"
+        return _print_with_qprinter(img, printer)
 
-    return "canceled"
+    return DialogPrintStatus.CANCELED
 
 
-def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
+def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> DialogPrintStatus:
     """Print an image using a QPrinter.
 
     Args:
@@ -130,7 +147,9 @@ def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
         printer: Configured QPrinter object
 
     Returns:
-        True if printing succeeded, False otherwise
+        PRINTED on success; NOT_SENT if anything failed before
+        ``QPainter.begin()`` succeeded (no print job exists); UNCERTAIN if
+        anything failed after that, when a job may already be spooling.
     """
     try:
         # Auto-rotate if landscape
@@ -143,8 +162,12 @@ def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
         painter = QPainter()
         if not painter.begin(printer):
             logger.warning("QPainter.begin() failed for QPrinter dialog print.")
-            return False
+            return DialogPrintStatus.NOT_SENT
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("Dialog print failed before printing started.")
+        return DialogPrintStatus.NOT_SENT
 
+    try:
         try:
             # Get dimensions
             rect = printer.pageRect(QPrinter.Unit.DevicePixel)
@@ -164,10 +187,16 @@ def _print_with_qprinter(img: Image.Image, printer: QPrinter) -> bool:
             painter.drawImage(0, 0, q_img)
 
         finally:
-            painter.end()
-
-        return True
-
+            ended = painter.end()
     except Exception:  # pylint: disable=broad-exception-caught
-        logger.exception("Dialog print failed during QPrinter rendering.")
-        return False
+        logger.exception(
+            "Dialog print failed after printing started; the label may still print."
+        )
+        return DialogPrintStatus.UNCERTAIN
+
+    if ended is False:
+        logger.warning(
+            "QPainter.end() reported failure; the label may or may not print."
+        )
+        return DialogPrintStatus.UNCERTAIN
+    return DialogPrintStatus.PRINTED

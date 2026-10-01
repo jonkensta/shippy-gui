@@ -18,7 +18,14 @@ from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.constants import STATUS_COLORS
 from shippy_gui.core.models import AutocompletePrediction, Config
 from shippy_gui.core.services import ShipmentService
-from shippy_gui.printing.printer_manager import print_image_with_dialog
+from shippy_gui.core.shipment_workflow import (
+    ShipmentWorkflow,
+    dialog_uncertain_warning,
+)
+from shippy_gui.printing.printer_manager import (
+    DialogPrintStatus,
+    print_image_with_dialog,
+)
 from shippy_gui.widgets.address_form import AddressForm
 from shippy_gui.widgets.autocomplete import GoogleMapsCompleter
 from shippy_gui.widgets.shipment_controls import ShipmentControls
@@ -198,17 +205,54 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self.worker.start()
 
     def _on_label_ready(self, image, printer_name: str, shipment: Any) -> None:
-        """Handle label ready for printing via system dialog."""
+        """Handle label ready for printing via system dialog.
+
+        Canceled: refund (nothing was printed and the volunteer chose not to).
+        Not sent (printing could not start): save for the label watcher like
+        a PrintError, refunding only if saving fails. Failed after printing
+        started: warn, no refund, nothing saved.
+        """
         result = print_image_with_dialog(
             image, self._parent_widget, preferred_printer_name=printer_name
         )
-        if result == "printed":
+        if result == DialogPrintStatus.PRINTED:
             self._on_shipment_success(
                 f"Label printed! Tracking: {shipment.tracking_code}"
             )
             return
-        if result in ("canceled", "failed"):
-            self._refund_shipment(shipment, f"Print {result}")
+        if result == DialogPrintStatus.CANCELED:
+            self._refund_shipment(shipment, "Print canceled")
+            return
+        if result == DialogPrintStatus.NOT_SENT:
+            self._save_dialog_label(image, printer_name, shipment)
+            return
+        self._on_shipment_success_with_warning(
+            f"{dialog_uncertain_warning()} Tracking: {shipment.tracking_code}"
+        )
+
+    def _save_dialog_label(self, image, printer_name: str, shipment: Any) -> None:
+        """Queue a dialog-printed label that never started printing."""
+        shipment_service = self._get_shipment_service()
+        if shipment_service is None:
+            self._on_shipment_error(
+                "The label did not print and could not be saved: services "
+                f"not configured. Tracking: {shipment.tracking_code}"
+            )
+            return
+        result = ShipmentWorkflow(shipment_service).save_unprinted_label(
+            shipment,
+            image,
+            RuntimeError(
+                f"printing could not start on {printer_name or 'the printer'}"
+            ),
+            on_progress=lambda message: self._status_presenter.set_status(
+                message, "info"
+            ),
+        )
+        if result.saved_label_path is not None:
+            self._on_label_saved(result.message)
+        else:
+            self._on_shipment_error(result.message)
 
     def _refund_shipment(self, shipment, reason: str) -> None:
         """Request a refund for a shipment."""
