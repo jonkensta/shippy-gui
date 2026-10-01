@@ -48,6 +48,7 @@ class FakeWorker:
         self.warning = FakeSignal()
         self.success = FakeSignal()
         self.success_with_warning = FakeSignal()
+        self.label_saved = FakeSignal()
         self.error = FakeSignal()
         self.finished = FakeSignal()
         self.label_ready = FakeSignal()
@@ -222,6 +223,52 @@ class ShippingCoordinatorTests(unittest.TestCase):
         self.assertIn(STATUS_COLORS["warning"], status_label.styleSheet())
         mock_warning.assert_called_once()
         self.assertIn("It may NOT have printed", mock_warning.call_args.args[2])
+
+    @patch("shippy_gui.shipping_coordinators.QMessageBox.warning")
+    @patch(
+        "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.NoModifier,
+    )
+    def test_shipment_flow_clears_form_and_warns_when_label_saved(
+        self, mock_keyboard_modifiers, mock_warning
+    ):
+        del mock_keyboard_modifiers
+        address_form = Mock(spec=AddressForm)
+        address_form.validate_required.return_value = None
+        shipment_controls = Mock(spec=ShipmentControls)
+        shipment_controls.validate.return_value = None
+        shipment_controls.weight_lbs = 2
+        shipment_controls.printer_name = "Alpha 20d1:7008"
+        status_label = QLabel()
+        created_workers: list[FakeWorker] = []
+
+        def worker_factory(**kwargs):
+            worker = FakeWorker(**kwargs)
+            created_workers.append(worker)
+            return worker
+
+        coordinator = ShipmentFlowCoordinator(
+            parent_widget=QWidget(),
+            address_search_input=QLineEdit(),
+            address_form=address_form,
+            shipment_controls=shipment_controls,
+            status_presenter=ShippingStatusPresenter(status_label),
+            get_config=Mock,
+            get_shipment_service=Mock,
+            get_logo_path=lambda: None,
+            worker_factory=worker_factory,
+        )
+        coordinator.create_label()
+
+        created_workers[0].label_saved.emit("The label did NOT print: saved")
+
+        # Postage was kept: the form is cleared so it is not bought twice.
+        address_form.clear.assert_called_once_with()
+        self.assertIn("did NOT print", status_label.text())
+        self.assertIn(STATUS_COLORS["warning"], status_label.styleSheet())
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[1], "Label Did Not Print")
+        self.assertIn("The label did NOT print", mock_warning.call_args.args[2])
 
     @patch("shippy_gui.shipping_coordinators.print_image_with_dialog")
     def test_shipment_flow_refunds_after_dialog_failure(self, mock_print_dialog):

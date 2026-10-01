@@ -23,6 +23,9 @@ class ShipmentWorker(
     success = Signal(str)  # Success message
     # Spooled (so not refunded) but the print queue reported a problem.
     success_with_warning = Signal(str)
+    # No printer took the label; it was saved to the print queue folder and
+    # postage was kept (not refunded).
+    label_saved = Signal(str)
     error = Signal(str)  # Error message
     warning = Signal(str)  # Warning message (non-blocking)
     label_ready = Signal(object, str, object)  # (image, printer_name, shipment_object)
@@ -88,7 +91,9 @@ class ShipmentWorker(
             on_progress=self.progress.emit,
         )
         if print_result.status is ShipmentWorkflowStatus.SUCCESS:
-            if print_result.print_warning:
+            if print_result.saved_label_path is not None:
+                self.label_saved.emit(print_result.message)
+            elif print_result.print_warning:
                 self.success_with_warning.emit(print_result.message)
             else:
                 self.success.emit(print_result.message)

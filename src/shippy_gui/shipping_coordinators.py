@@ -191,6 +191,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         )
         self.worker.success.connect(self._on_shipment_success)
         self.worker.success_with_warning.connect(self._on_shipment_success_with_warning)
+        self.worker.label_saved.connect(self._on_label_saved)
         self.worker.error.connect(self._on_shipment_error)
         self.worker.finished.connect(self._on_shipment_finished)
         self.worker.label_ready.connect(self._on_label_ready)
@@ -235,6 +236,16 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._on_shipment_success(message)
         self._status_presenter.set_status(message, "warning")
         QMessageBox.warning(self._parent_widget, "Check The Printer", message)
+
+    def _on_label_saved(self, message: str) -> None:
+        """Handle a label that did not print and was saved for printing later."""
+        # Postage is kept, so clear the form like a success: re-submitting it
+        # would buy a second label.
+        self._on_shipment_success(message)
+        self._status_presenter.set_status(
+            "Label did NOT print - saved to print later (postage kept)", "warning"
+        )
+        QMessageBox.warning(self._parent_widget, "Label Did Not Print", message)
 
     def _on_shipment_error(self, message: str) -> None:
         """Handle shipment error."""

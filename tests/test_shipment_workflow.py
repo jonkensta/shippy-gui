@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import ibp_printing
@@ -114,27 +115,77 @@ class ShipmentWorkflowTests(unittest.TestCase):
         self.assertTrue(result.refund_requested)
         self.service.refund_shipment.assert_called_once_with("shp_123")
 
-    def test_print_prepared_label_requests_refund_on_ibp_print_error(self):
+    def _prepared(self):
         shipment = Mock(id="shp_123")
         shipment.tracking_code = "TRACK123"
-        prepared_result = Mock(
+        return Mock(
             status=ShipmentWorkflowStatus.READY,
             shipment=shipment,
             image=Image.new("RGB", (10, 10), "white"),
         )
+
+    def _failing_backend(self):
         backend = Mock(spec=ibp_printing.PrinterBackend)
         backend.print_image.side_effect = ibp_printing.PrintError("CreateDC failed")
         ibp_printing.set_backend(backend)
         self.addCleanup(ibp_printing.set_backend, None)
+        return backend
 
-        with self.assertLogs("ibp_printing", "ERROR"):
+    def test_print_prepared_label_saves_label_without_refund_on_print_error(self):
+        prepared_result = self._prepared()
+        backend = self._failing_backend()
+        watch_dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        real_save = ibp_printing.save_for_retry
+
+        def save_into_temp(img, name):
+            return real_save(img, name, watch_dir=watch_dir)
+
+        with (
+            patch(
+                "shippy_gui.core.shipment_workflow.ibp_printing.save_for_retry",
+                side_effect=save_into_temp,
+            ) as mock_save,
+            self.assertLogs("ibp_printing", "ERROR"),
+        ):
+            result = self.workflow.print_prepared_label(prepared_result, "Printer Name")
+
+        self.assertEqual(result.status, ShipmentWorkflowStatus.SUCCESS)
+        self.assertFalse(result.refund_requested)
+        self.service.refund_shipment.assert_not_called()
+        mock_save.assert_called_once_with(prepared_result.image, name="TRACK123")
+        self.assertIsNotNone(result.saved_label_path)
+        self.assertTrue(result.saved_label_path.exists())
+        self.assertEqual(result.saved_label_path.parent, watch_dir / "to-print")
+        self.assertIn("TRACK123", result.saved_label_path.name)
+        self.assertIn("did NOT print", result.message)
+        self.assertIn("CreateDC failed", result.message)
+        self.assertIn(str(result.saved_label_path), result.message)
+        self.assertIn("label watcher", result.message)
+        self.assertIn("NOT refunded", result.message)
+        self.assertIn("TRACK123", result.message)
+        self.assertIn("TRACK123", backend.print_image.call_args.kwargs["job_name"])
+
+    def test_print_prepared_label_refunds_when_label_cannot_be_saved(self):
+        prepared_result = self._prepared()
+        self._failing_backend()
+
+        with (
+            patch(
+                "shippy_gui.core.shipment_workflow.ibp_printing.save_for_retry",
+                side_effect=OSError("disk full"),
+            ),
+            self.assertLogs("ibp_printing", "ERROR"),
+            self.assertLogs("shippy_gui.core.shipment_workflow", "ERROR"),
+        ):
             result = self.workflow.print_prepared_label(prepared_result, "Printer Name")
 
         self.assertEqual(result.status, ShipmentWorkflowStatus.ERROR)
         self.assertTrue(result.refund_requested)
+        self.assertIsNone(result.saved_label_path)
         self.assertIn("CreateDC failed", result.message)
+        self.assertIn("disk full", result.message)
+        self.assertIn("Refund requested", result.message)
         self.service.refund_shipment.assert_called_once_with("shp_123")
-        self.assertIn("TRACK123", backend.print_image.call_args.kwargs["job_name"])
 
     def _prepare_after_purchase(self, *, logo_path=None):
         shipment = Mock(id="shp_123")
@@ -219,6 +270,31 @@ class ShipmentWorkflowTests(unittest.TestCase):
         self.assertIn("Alpha 20d1:7008", result.message)
         self.assertIn("TRACK123", result.message)
         self.assertIn(str(ibp_printing.default_log_dir()), result.message)
+
+    def test_print_prepared_label_warns_without_refund_on_uncertain_outcomes(self):
+        for outcome in (
+            ibp_printing.JobOutcome.UNCERTAIN,
+            ibp_printing.JobOutcome.TRACKING_FAILED,
+        ):
+            with self.subTest(outcome=outcome):
+                self.service.reset_mock()
+                print_result = ibp_printing.PrintResult(
+                    "Alpha", "Shipping Label", outcome=outcome
+                )
+                with patch(
+                    "shippy_gui.core.shipment_workflow.print_image",
+                    return_value=print_result,
+                ):
+                    result = self.workflow.print_prepared_label(
+                        self._prepared(), "Alpha"
+                    )
+
+                self.assertEqual(result.status, ShipmentWorkflowStatus.SUCCESS)
+                self.service.refund_shipment.assert_not_called()
+                self.assertIsNone(result.saved_label_path)
+                self.assertIsNotNone(result.print_warning)
+                self.assertIn("may NOT have printed", result.message)
+                self.assertIn("check the printer before reprinting", result.message)
 
     def test_print_prepared_label_succeeds_without_warning_on_ok_outcome(self):
         shipment = Mock(id="shp_123")

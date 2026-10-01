@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 import os
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import easypost  # type: ignore[import-not-found] # pylint: disable=import-error
@@ -47,6 +48,9 @@ class ShipmentWorkflowResult:
     # Set when the label was spooled (so no refund) but the print queue then
     # reported a bad outcome; the UI must show it prominently.
     print_warning: Optional[str] = None
+    # Set when no printer could take the label: it was saved to the print
+    # queue folder instead (postage NOT refunded); the UI must show it.
+    saved_label_path: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -175,7 +179,16 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
                 shipment=prepared_result.shipment,
                 image=prepared_result.image,
             )
-        except RuntimeError as error:  # includes ibp_printing.PrintError
+        except ibp_printing.PrintError as error:
+            # The job definitely never reached a printer. Keep the postage and
+            # queue the label for the label watcher instead of refunding.
+            return self._save_for_retry(
+                prepared_result.shipment,
+                prepared_result.image,
+                error,
+                on_progress=progress,
+            )
+        except RuntimeError as error:
             return self.refund_after_failure(
                 prepared_result.shipment,
                 f"Printing error: {error}",
@@ -187,6 +200,37 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
                 f"Unexpected error: {error}",
                 on_progress=progress,
             )
+
+    def _save_for_retry(
+        self,
+        shipment: Any,
+        image: Image.Image,
+        print_error: Exception,
+        on_progress: Optional[ProgressCallback] = None,
+    ) -> ShipmentWorkflowResult:
+        """Save an unprinted label to the print queue; refund only if that fails."""
+        progress = on_progress or (lambda _message: None)
+        tracking = shipment.tracking_code or shipment.id
+        try:
+            progress("Saving label to print later...")
+            path = ibp_printing.save_for_retry(image, name=tracking)
+        except Exception as save_error:  # pylint: disable=broad-exception-caught
+            logger.exception("Could not save unprinted label %s", tracking)
+            return self.refund_after_failure(
+                shipment,
+                f"Printing error: {print_error}. The label also could not be "
+                f"saved to print later: {save_error}",
+                on_progress=progress,
+            )
+
+        warning = saved_label_message(print_error, path)
+        return ShipmentWorkflowResult(
+            status=ShipmentWorkflowStatus.SUCCESS,
+            message=f"{warning}\n\nTracking: {tracking}",
+            shipment=shipment,
+            image=image,
+            saved_label_path=path,
+        )
 
     def refund_after_failure(
         self,
@@ -220,13 +264,34 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
             )
 
 
+def saved_label_message(print_error: Exception, path: Path) -> str:
+    """Tell the volunteer an unprinted label was queued and postage kept."""
+    return (
+        f"The label did NOT print: {print_error}\n\n"
+        f"It was saved to:\n{path}\n\n"
+        "If the IBP label watcher is running, it will print automatically as "
+        "soon as a label printer is working. Otherwise, print that file "
+        "yourself.\n\n"
+        "Postage was NOT refunded. If this package will not ship, refund it "
+        "in EasyPost."
+    )
+
+
+# Outcomes whose raw value reads badly in a sentence about "the print queue".
+_OUTCOME_DETAILS = {
+    "uncertain": "it could not be confirmed that the job reached the printer",
+    "tracking_failed": "following the print job failed",
+}
+
+
 def _print_outcome_warning(
     printer_name: str, print_result: ibp_printing.PrintResult
 ) -> str:
     """Explain a spooled job whose tracked outcome suggests no label came out."""
+    outcome = print_result.outcome.value
+    detail = _OUTCOME_DETAILS.get(outcome, f"the print queue reported '{outcome}'")
     return (
-        f"Label was sent to {printer_name} but the print queue reported "
-        f"'{print_result.outcome.value}'. It may NOT have printed - check the "
-        "printer before reprinting; postage was NOT refunded. "
-        f"Printer logs: {ibp_printing.default_log_dir()}"
+        f"Label was sent to {printer_name} but {detail}. It may NOT have "
+        "printed - check the printer before reprinting; postage was NOT "
+        f"refunded. Printer logs: {ibp_printing.default_log_dir()}"
     )

@@ -73,7 +73,8 @@ class ShipmentControls(QWidget):
         self.create_button.setToolTip(
             "Purchase postage, download label, and print to selected printer.\n"
             "Hold Shift + Click to choose printer via system dialog.\n"
-            "Label will be automatically refunded if printing fails."
+            "If no printer can take the label, it is saved to print later "
+            "(postage is not refunded)."
         )
         self.create_button.clicked.connect(self.create_requested.emit)
         layout.addRow(self.create_button)
