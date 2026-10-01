@@ -18,7 +18,7 @@ Inside Books Project is an Austin-based community service volunteer organization
 - **Label Printing**: Generates and prints postage labels with IBP logo overlay when available
 - **Cross-Platform Printing**: Supports Windows (win32print) and Linux (CUPS) printing via the shared [ibp-printing](https://github.com/jonkensta/ibp-printing) library
 - **Settings Dialog**: GUI for configuring API keys and return address
-- **Error Handling**: Automatic refund on print failure, comprehensive error messages
+- **Error Handling**: Labels that cannot reach a printer are saved to a print queue folder for the IBP label watcher (postage kept); automatic refund if the label itself cannot be downloaded; comprehensive error messages
 - **Async Operations**: Non-blocking UI using QThread for network operations
 - **Configurable Font Size**: Adjust UI font size for accessibility
 
@@ -210,7 +210,8 @@ To create the shortcut:
    - Downloads label from EasyPost and overlays IBP logo from `assets/logo.jpg` when available
    - Prints to selected printer
    - Shows tracking number on success
-   - Automatically refunds if printing fails
+   - If no printer can take the label, saves it to `Downloads\to-print\` to print later (postage is **not** refunded; see [Label did not print](#label-did-not-print))
+   - Automatically refunds if the label cannot be downloaded or prepared
 
 ## Platform Support
 
@@ -228,7 +229,7 @@ Shift + Click on "Create Label" uses the Qt system print dialog instead.
 ### Printer logs
 
 Every discovery and print attempt is logged in detail by `ibp-printing` to
-`printer.log` (human readable) and `printer.jsonl` (one JSON object per line)
+`printer-shippy-gui.log` (human readable) and `printer-shippy-gui.jsonl` (one JSON object per line)
 in `%LOCALAPPDATA%\ibp-printing\logs` on Windows
 (`~/.local/state/ibp-printing/logs` on Linux). Printer messages at INFO and
 above also appear in the shippy-gui log file.
@@ -248,15 +249,32 @@ above also appear in the shippy-gui log file.
 - This is non-blocking; you can proceed with shipment
 - Double-check the address manually before shipping
 
-### Print failure with refund
-- Check that your printer is online and selected correctly
-- Verify printer name matches exactly (case-sensitive on some systems)
-- The shipment is automatically refunded if the label cannot be sent to the printer
+### Label did not print
+If the label cannot be sent to any printer, the postage is **kept** (not
+refunded) and the label, with the IBP logo, is saved to the print queue folder
+`Downloads\to-print\`. The "Label Did Not Print" dialog shows the exact file.
+
+- If the IBP label watcher (from ibp-printing) is running, the label prints
+  automatically as soon as a label printer is working - plug in or fix the
+  printer and wait.
+- Otherwise, print that file yourself once the printer works.
+- If the package will not ship after all, refund the shipment in EasyPost (the
+  dialog shows its tracking number) and delete the saved file.
+- Check that your printer is online and selected correctly.
+
+The app only refunds automatically when the label could not be downloaded or
+prepared after buying postage, or when it could not even be saved to the queue.
+
+### "Check The Printer" warning
+The label reached the print queue, but the queue then reported a problem (or
+it could not be confirmed that the job got there). The postage is **not**
+refunded and the label is **not** queued again, because it may still print.
+Check the printer before reprinting so you do not end up with two labels.
 
 ### Printer missing from the list
 - Click **Refresh** after plugging in or turning on the printer
 - Run `uv run diagnose-printers` to see every print queue and why it is or is not listed
-- Send the `printer.log`/`printer.jsonl` files (see [Printer logs](#printer-logs)) when reporting a problem
+- Send the `printer-shippy-gui.log`/`printer-shippy-gui.jsonl` files (see [Printer logs](#printer-logs)) when reporting a problem
 
 ### Google Maps autocomplete not working
 - Verify your Google Maps API key in Settings
