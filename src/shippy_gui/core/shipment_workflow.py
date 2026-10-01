@@ -147,7 +147,12 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
         printer_name: str,
         on_progress: Optional[ProgressCallback] = None,
     ) -> ShipmentWorkflowResult:
-        """Print a prepared label image and request a refund on failure."""
+        """Print a prepared label image.
+
+        Never refunds once printing was attempted, except when the label
+        definitely reached no printer AND could not be saved for the label
+        watcher (see ``save_unprinted_label``).
+        """
         progress = on_progress or (lambda _message: None)
 
         if not prepared_result.shipment or prepared_result.image is None:
@@ -155,53 +160,53 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
                 status=ShipmentWorkflowStatus.ERROR,
                 message="Shipment creation failed: No prepared label available.",
             )
+        shipment, image = prepared_result.shipment, prepared_result.image
 
         try:
             progress("Printing label...")
             print_result = print_image(
-                prepared_result.image,
+                image,
                 printer_name,
-                job_name=f"{PRINT_JOB_NAME} {prepared_result.shipment.tracking_code}",
-            )
-            tracking = prepared_result.shipment.tracking_code
-            if not print_result.outcome.ok:
-                warning = _print_outcome_warning(printer_name, print_result)
-                return ShipmentWorkflowResult(
-                    status=ShipmentWorkflowStatus.SUCCESS,
-                    message=f"{warning} Tracking: {tracking}",
-                    shipment=prepared_result.shipment,
-                    image=prepared_result.image,
-                    print_warning=warning,
-                )
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.SUCCESS,
-                message=f"Label printed successfully! Tracking: {tracking}",
-                shipment=prepared_result.shipment,
-                image=prepared_result.image,
+                job_name=f"{PRINT_JOB_NAME} {shipment.tracking_code}",
             )
         except ibp_printing.PrintError as error:
             # The job definitely never reached a printer. Keep the postage and
             # queue the label for the label watcher instead of refunding.
-            return self._save_for_retry(
-                prepared_result.shipment,
-                prepared_result.image,
-                error,
-                on_progress=progress,
-            )
-        except RuntimeError as error:
-            return self.refund_after_failure(
-                prepared_result.shipment,
-                f"Printing error: {error}",
-                on_progress=progress,
+            return self.save_unprinted_label(
+                shipment, image, error, on_progress=progress
             )
         except Exception as error:  # pylint: disable=broad-exception-caught
-            return self.refund_after_failure(
-                prepared_result.shipment,
-                f"Unexpected error: {error}",
-                on_progress=progress,
+            # Not a PrintError: whether the job reached the spooler is unknown,
+            # so treat it as uncertain (no refund, no automatic retry).
+            logger.exception("Unexpected error while printing %s", shipment.id)
+            warning = print_raised_warning(printer_name, error)
+            return ShipmentWorkflowResult(
+                status=ShipmentWorkflowStatus.SUCCESS,
+                message=f"{warning} Tracking: {_shipment_ref(shipment)}",
+                shipment=shipment,
+                image=image,
+                print_warning=warning,
             )
 
-    def _save_for_retry(
+        # The job was spooled; nothing below may refund.
+        tracking = shipment.tracking_code
+        if not print_result.outcome.ok:
+            warning = _print_outcome_warning(printer_name, print_result)
+            return ShipmentWorkflowResult(
+                status=ShipmentWorkflowStatus.SUCCESS,
+                message=f"{warning} Tracking: {tracking}",
+                shipment=shipment,
+                image=image,
+                print_warning=warning,
+            )
+        return ShipmentWorkflowResult(
+            status=ShipmentWorkflowStatus.SUCCESS,
+            message=f"Label printed successfully! Tracking: {tracking}",
+            shipment=shipment,
+            image=image,
+        )
+
+    def save_unprinted_label(
         self,
         shipment: Any,
         image: Image.Image,
@@ -210,7 +215,7 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
     ) -> ShipmentWorkflowResult:
         """Save an unprinted label to the print queue; refund only if that fails."""
         progress = on_progress or (lambda _message: None)
-        tracking = shipment.tracking_code or shipment.id
+        tracking = _shipment_ref(shipment)
         try:
             progress("Saving label to print later...")
             path = ibp_printing.save_for_retry(image, name=tracking)
@@ -264,16 +269,43 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
             )
 
 
+def _shipment_ref(shipment: Any) -> str:
+    """What a volunteer searches for in EasyPost: tracking code, else id."""
+    return shipment.tracking_code or shipment.id
+
+
 def saved_label_message(print_error: Exception, path: Path) -> str:
     """Tell the volunteer an unprinted label was queued and postage kept."""
     return (
         f"The label did NOT print: {print_error}\n\n"
         f"It was saved to:\n{path}\n\n"
         "If the IBP label watcher is running, it will print automatically as "
-        "soon as a label printer is working. Otherwise, print that file "
-        "yourself.\n\n"
-        "Postage was NOT refunded. If this package will not ship, refund it "
-        "in EasyPost."
+        "soon as a label printer is working.\n\n"
+        "Postage was NOT refunded.\n\n"
+        "Before you print that file by hand, or refund this shipment in "
+        f"EasyPost, DELETE it from {path.parent} first, so the label watcher "
+        "does not print it too. If it is already gone, the watcher has picked "
+        "it up: check the printer (and the printed and check-printer folders "
+        "next to it) before doing either."
+    )
+
+
+def print_raised_warning(printer_name: str, error: Exception) -> str:
+    """Explain an unexpected print error after which the label may still print."""
+    return (
+        f"Printing to {printer_name} failed unexpectedly ({error}) after the "
+        "label may already have reached the printer. It may or may NOT have "
+        "printed - check the printer before reprinting; postage was NOT "
+        f"refunded. Printer logs: {ibp_printing.default_log_dir()}"
+    )
+
+
+def dialog_uncertain_warning() -> str:
+    """Explain a print-dialog job that failed after printing had started."""
+    return (
+        "Printing through the print dialog failed after it had started. The "
+        "label may or may NOT have printed - check the printer before "
+        "reprinting; postage was NOT refunded."
     )
 
 

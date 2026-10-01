@@ -96,24 +96,40 @@ class ShipmentWorkflowTests(unittest.TestCase):
         self.assertEqual(result.status, ShipmentWorkflowStatus.READY)
         self.assertEqual(len(warnings), 2)
 
-    def test_print_prepared_label_requests_refund_on_runtime_error(self):
-        shipment = Mock(id="shp_123")
-        shipment.tracking_code = "TRACK123"
-        prepared_result = Mock(
-            status=ShipmentWorkflowStatus.READY,
-            shipment=shipment,
-            image=Image.new("RGB", (10, 10), "white"),
-        )
-
-        with patch(
-            "shippy_gui.core.shipment_workflow.print_image",
-            side_effect=RuntimeError("printer offline"),
+    def test_print_prepared_label_treats_unexpected_errors_as_uncertain(self):
+        # R3: anything other than PrintError may have happened after the job
+        # reached the spooler, so no refund and no save-for-retry.
+        for error in (
+            RuntimeError("printer offline"),
+            OSError("temp file could not be deleted"),
+            ValueError("bad state"),
         ):
-            result = self.workflow.print_prepared_label(prepared_result, "Printer Name")
+            with self.subTest(error=type(error).__name__):
+                self.service.reset_mock()
+                with (
+                    patch(
+                        "shippy_gui.core.shipment_workflow.print_image",
+                        side_effect=error,
+                    ),
+                    patch(
+                        "shippy_gui.core.shipment_workflow.ibp_printing.save_for_retry"
+                    ) as mock_save,
+                    self.assertLogs("shippy_gui.core.shipment_workflow", "ERROR"),
+                ):
+                    result = self.workflow.print_prepared_label(
+                        self._prepared(), "Printer Name"
+                    )
 
-        self.assertEqual(result.status, ShipmentWorkflowStatus.ERROR)
-        self.assertTrue(result.refund_requested)
-        self.service.refund_shipment.assert_called_once_with("shp_123")
+                self.assertEqual(result.status, ShipmentWorkflowStatus.SUCCESS)
+                self.assertFalse(result.refund_requested)
+                self.service.refund_shipment.assert_not_called()
+                mock_save.assert_not_called()
+                self.assertIsNone(result.saved_label_path)
+                self.assertIsNotNone(result.print_warning)
+                self.assertIn(str(error), result.print_warning)
+                self.assertIn("may or may NOT have printed", result.message)
+                self.assertIn("NOT refunded", result.message)
+                self.assertIn("TRACK123", result.message)
 
     def _prepared(self):
         shipment = Mock(id="shp_123")
@@ -163,6 +179,10 @@ class ShipmentWorkflowTests(unittest.TestCase):
         self.assertIn("label watcher", result.message)
         self.assertIn("NOT refunded", result.message)
         self.assertIn("TRACK123", result.message)
+        # R5: tell the volunteer to remove the queued file before printing it
+        # by hand or refunding, so the watcher does not print it too.
+        self.assertIn("DELETE it from", result.message)
+        self.assertIn(str(watch_dir / "to-print"), result.message)
         self.assertIn("TRACK123", backend.print_image.call_args.kwargs["job_name"])
 
     def test_print_prepared_label_refunds_when_label_cannot_be_saved(self):
