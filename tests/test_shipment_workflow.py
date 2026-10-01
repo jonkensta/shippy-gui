@@ -1,5 +1,6 @@
 """Unit tests for the pure shipment workflow service."""
 
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -134,6 +135,61 @@ class ShipmentWorkflowTests(unittest.TestCase):
         self.assertIn("CreateDC failed", result.message)
         self.service.refund_shipment.assert_called_once_with("shp_123")
         self.assertIn("TRACK123", backend.print_image.call_args.kwargs["job_name"])
+
+    def _prepare_after_purchase(self, *, logo_path=None):
+        shipment = Mock(id="shp_123")
+        shipment.postage_label.label_url = "https://example.com/label.png"
+        self.service.create_address.side_effect = [Mock(id="f"), Mock(id="t")]
+        self.service.buy_shipment.return_value = shipment
+        with self.assertLogs("shippy_gui.core.shipment_workflow", "ERROR"):
+            return self.workflow.prepare_label(
+                ShipmentWorkflowInput(
+                    from_address=self.from_address,
+                    to_address=self.to_address,
+                    weight_lbs=2,
+                    logo_path=logo_path,
+                )
+            )
+
+    @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
+    def test_prepare_label_refunds_when_label_download_fails(self, mock_grab_png):
+        mock_grab_png.side_effect = ConnectionError("download failed")
+
+        result = self._prepare_after_purchase()
+
+        self.assertEqual(result.status, ShipmentWorkflowStatus.ERROR)
+        self.assertTrue(result.refund_requested)
+        self.assertIn("download failed", result.message)
+        self.service.refund_shipment.assert_called_once_with("shp_123")
+
+    @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
+    def test_prepare_label_refunds_when_logo_cannot_be_applied(self, mock_grab_png):
+        mock_grab_png.return_value = Image.new("RGB", (10, 10), "white")
+        logo = self.enterContext(tempfile.NamedTemporaryFile(suffix=".jpg"))
+        logo.write(b"not an image")
+        logo.flush()
+
+        result = self._prepare_after_purchase(logo_path=logo.name)
+
+        self.assertEqual(result.status, ShipmentWorkflowStatus.ERROR)
+        self.assertTrue(result.refund_requested)
+        self.service.refund_shipment.assert_called_once_with("shp_123")
+
+    def test_prepare_label_does_not_refund_when_purchase_fails(self):
+        self.service.create_address.side_effect = [Mock(id="f"), Mock(id="t")]
+        self.service.buy_shipment.side_effect = RuntimeError("no rates")
+
+        result = self.workflow.prepare_label(
+            ShipmentWorkflowInput(
+                from_address=self.from_address,
+                to_address=self.to_address,
+                weight_lbs=2,
+            )
+        )
+
+        self.assertEqual(result.status, ShipmentWorkflowStatus.ERROR)
+        self.assertIn("no rates", result.message)
+        self.service.refund_shipment.assert_not_called()
 
     def test_print_prepared_label_warns_without_refund_on_bad_job_outcome(self):
         shipment = Mock(id="shp_123")

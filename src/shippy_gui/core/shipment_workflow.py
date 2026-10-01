@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
+import logging
 import os
 from typing import Any, Callable, Optional
 
@@ -19,6 +20,8 @@ from shippy_gui.core.misc import grab_png_from_url
 from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.printing.printer_manager import print_image
+
+logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str], None]
 WarningCallback = Callable[[str], None]
@@ -72,6 +75,7 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
         progress = on_progress or (lambda _message: None)
         warning = on_warning or (lambda _message: None)
 
+        shipment = None
         try:
             progress("Building return address...")
             from_addr = self.service.create_address(workflow_input.from_address)
@@ -116,15 +120,22 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
             )
 
         except easypost.errors.ApiError as error:
-            return ShipmentWorkflowResult(
-                status=ShipmentWorkflowStatus.ERROR,
-                message=f"Shipment creation failed: EasyPost API error: {error}",
-            )
+            message = f"EasyPost API error: {error}"
         except Exception as error:  # pylint: disable=broad-exception-caught
+            message = f"Unexpected error: {error}"
+
+        if shipment is None:
             return ShipmentWorkflowResult(
                 status=ShipmentWorkflowStatus.ERROR,
-                message=f"Shipment creation failed: Unexpected error: {error}",
+                message=f"Shipment creation failed: {message}",
             )
+        # Postage was bought but there is no label image to print or save.
+        logger.error("Label preparation failed after purchase: %s", message)
+        return self.refund_after_failure(
+            shipment,
+            f"Label could not be prepared after buying postage: {message}",
+            on_progress=progress,
+        )
 
     def print_prepared_label(
         self,
