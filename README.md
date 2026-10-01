@@ -35,10 +35,9 @@ To set up the `shippy-gui` application, ensure you have Python 3.12+ and [uv](ht
     cd shippy-gui
     ```
 
-    Printing comes from the shared `ibp-printing` library. Until it is
-    published, `pyproject.toml` points at a local checkout, so clone it next to
-    `shippy-gui` (i.e. at `../ibp-printing`). Running straight from git with
-    `uvx` (Option 2) needs `ibp-printing` to be published first.
+    Printing comes from the shared
+    [`ibp-printing`](https://github.com/jonkensta/ibp-printing) library, pinned
+    to a release tag in `pyproject.toml` and installed automatically.
 
 2.  **Create and activate a virtual environment:**
 

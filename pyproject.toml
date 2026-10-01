@@ -33,11 +33,9 @@ diagnose-printers = "ibp_printing.diagnostics:main"
 shippy-gui = "shippy_gui.__main__:main"
 
 [tool.uv.sources]
-# TODO: switch to
-#   ibp-printing = { git = "https://github.com/jonkensta/ibp-printing", tag = "v0.1.0" }
-# once ibp-printing is published. Until then it must be checked out next to
-# shippy-gui.
-ibp-printing = { path = "../ibp-printing", editable = true }
+# For local development against a checkout next to this repo, temporarily use:
+#   ibp-printing = { path = "../ibp-printing", editable = true }
+ibp-printing = { git = "https://github.com/jonkensta/ibp-printing", tag = "v0.1.0" }
 
 [build-system]
 requires = ["uv_build>=0.9.21,<0.10.0"]

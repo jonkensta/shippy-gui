@@ -24,7 +24,7 @@
 ## Environment and Setup
 
 - Create the environment with `uv venv` and install dependencies with `uv sync`.
-- `ibp-printing` is a path dependency (`../ibp-printing`) until it is published; check it out next to this repository.
+- `ibp-printing` is pinned to a git tag of https://github.com/jonkensta/ibp-printing in `pyproject.toml`; to develop both together, temporarily switch `[tool.uv.sources]` to the `../ibp-printing` path source shown there.
 - Install Linux printing dependencies with `uv sync --extra linux` (pycups via `ibp-printing[linux]`) when working on Linux printing support.
 - `uv sync --extra windows` still works; pywin32 and WMI now come from ibp-printing automatically on Windows.
 - Run the app from the repository root so `config.ini` resolves correctly.

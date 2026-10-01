@@ -47,7 +47,7 @@ src/shippy_gui/
 uv venv
 source .venv/bin/activate
 uv sync --extra linux   # or --extra windows on Windows
-# ibp-printing is a path dependency until published: check it out at ../ibp-printing
+# ibp-printing is pinned to a git tag; to develop both together, temporarily point [tool.uv.sources] at ../ibp-printing
 uv run pre-commit install
 ```
 
