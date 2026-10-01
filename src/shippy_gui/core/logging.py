@@ -13,8 +13,8 @@ from shippy_gui.core.constants import LOG_BACKUP_COUNT, LOG_MAX_BYTES
 def configure_logging(log_path: str) -> Path:
     """Configure application logging to a rotating file.
 
-    Also enables ibp-printing's verbose printer logs (``printer.log`` and
-    ``printer.jsonl`` in its per-machine log directory). Printer records still
+    Also enables ibp-printing's verbose printer logs (``printer-shippy-gui.log``
+    and ``printer-shippy-gui.jsonl`` in its per-machine log directory). Printer records still
     propagate to the app log at INFO and above.
 
     Returns:
@@ -37,4 +37,4 @@ def configure_logging(log_path: str) -> Path:
     root_logger.addHandler(handler)
 
     # The GUI has no console (pythonw); everything goes to the log files.
-    return ibp_printing.configure_logging(console=False)
+    return ibp_printing.configure_logging(app="shippy-gui", console=False)
