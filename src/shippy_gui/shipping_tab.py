@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QLineEdit,
     QLabel,
 )
-from PySide6.QtCore import Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtCore import Qt, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.config_manager import ConfigManager
@@ -36,6 +36,9 @@ class ShippingTab(QWidget):
     """Tab for unified shipping with address lookup."""
 
     # pylint: disable=too-many-instance-attributes
+
+    # A shipment attempt ended (printed, queued, refunded or failed).
+    shipment_finished = Signal()
 
     def __init__(self, config_path: Optional[str] = None, parent=None):
         """Initialize the shipping tab."""
@@ -188,6 +191,7 @@ class ShippingTab(QWidget):
             get_config=lambda: self.config,
             get_shipment_service=lambda: self.shipment_service,
             get_logo_path=lambda: self.logo_path,
+            on_shipment_done=self.shipment_finished.emit,
         )
         self.shipment_controls.create_requested.connect(self.shipment_flow.create_label)
 

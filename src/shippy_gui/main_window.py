@@ -10,6 +10,7 @@ from shippy_gui.core.config import get_font_size_from_path
 from shippy_gui.core.font import apply_font_size
 from shippy_gui.settings_dialog import SettingsDialog
 from shippy_gui.shipping_tab import ShippingTab
+from shippy_gui.widgets.label_queue import PendingLabelsIndicator
 
 
 class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
@@ -42,6 +43,13 @@ class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
+
+        # "Waiting to print: N" so volunteers see labels that are already
+        # bought and must not be created again.
+        self.pending_labels = PendingLabelsIndicator(parent=self)
+        self.status_bar.addPermanentWidget(self.pending_labels)
+        self.shipping_tab.shipment_finished.connect(self.pending_labels.refresh)
+        self.pending_labels.start()
 
     def _create_menu_bar(self):
         """Create the application menu bar."""
