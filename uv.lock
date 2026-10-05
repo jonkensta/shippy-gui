@@ -101,7 +101,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/fe/26/bca4d737a9acea25e
 [[package]]
 name = "ibp-printing"
 version = "0.1.1"
-source = { git = "https://github.com/jonkensta/ibp-printing?tag=v0.1.1#34f4b4ecf0fb3215b9342f8b6890cdc17778a93f" }
+source = { editable = "../ibp-printing" }
 dependencies = [
     { name = "pillow" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
@@ -111,6 +111,28 @@ dependencies = [
 [package.optional-dependencies]
 linux = [
     { name = "pycups" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pillow", specifier = ">=12.2.0" },
+    { name = "pycups", marker = "extra == 'linux'", specifier = ">=2.0.4" },
+    { name = "pypdfium2", marker = "extra == 'watcher'", specifier = ">=4.30.0" },
+    { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=310" },
+    { name = "watchdog", marker = "extra == 'watcher'", specifier = ">=6.0.0" },
+    { name = "wmi", marker = "sys_platform == 'win32'", specifier = ">=1.5.1" },
+]
+provides-extras = ["linux", "watcher"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "black", specifier = ">=26.3.1" },
+    { name = "ibp-printing", extras = ["watcher"] },
+    { name = "mypy", specifier = ">=1.16.1" },
+    { name = "pylint", specifier = ">=3.3.7" },
+    { name = "python-barcode", specifier = ">=0.16.1" },
+    { name = "pyzbar", specifier = ">=0.1.9" },
+    { name = "types-pywin32", specifier = ">=310.0.0.20250516" },
 ]
 
 [[package]]
@@ -399,8 +421,8 @@ linux = [
 requires-dist = [
     { name = "easypost", specifier = ">=10.3.0" },
     { name = "googlemaps", specifier = ">=4.10.0" },
-    { name = "ibp-printing", git = "https://github.com/jonkensta/ibp-printing?tag=v0.1.1" },
-    { name = "ibp-printing", extras = ["linux"], marker = "extra == 'linux'", git = "https://github.com/jonkensta/ibp-printing?tag=v0.1.1" },
+    { name = "ibp-printing", editable = "../ibp-printing" },
+    { name = "ibp-printing", extras = ["linux"], marker = "extra == 'linux'", editable = "../ibp-printing" },
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pyside6", specifier = ">=6.8.0" },
