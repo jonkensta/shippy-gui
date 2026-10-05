@@ -27,10 +27,13 @@ src/shippy_gui/
     logging.py         # Logging setup
     font.py            # Font size application
     misc.py
+    shipment_workflow.py # Buy/print/save/refund orchestration
+    label_journal.py   # Shared ibp-printing label journal (duplicates, statuses)
   widgets/
     address_form.py    # Address entry widget
     shipment_controls.py
     autocomplete.py    # Google Maps autocomplete widget
+    label_queue.py     # Duplicate question, "Label queued" dialog, "Waiting to print" indicator
   workers/
     shipment_worker.py # QThread worker for async shipment creation
   printing/
@@ -102,8 +105,13 @@ QT_QPA_PLATFORM=offscreen uv run python -m unittest discover -s tests
 - Tests fake printers with `ibp_printing.set_backend(FakeBackend())` (see `tests/test_printer_manager.py`); reset with `set_backend(None)`.
 - Refund rules after postage is bought — preserve them when touching `shipment_worker.py` / `core/shipment_workflow.py` (covered by `tests/test_shipment_workflow.py`):
   - **No label image yet** (label download, decoding, or logo fails): refund.
-  - **`ibp_printing.PrintError`** (the job definitely reached no printer): do NOT refund. Save the rendered label (with logo) with `ibp_printing.save_for_retry(image, name=tracking_code)` into `<Downloads>/to-print/`, where the IBP label watcher prints it once a printer works. The volunteer is told the path and that postage was NOT refunded via `ShipmentWorker.label_saved` (warning status + "Label Did Not Print" dialog; the form is cleared so the postage is not bought twice). Only if saving fails is the shipment refunded.
+  - **`ibp_printing.PrintError`** (the job definitely reached no printer): do NOT refund. Save the rendered label (with logo) with `ibp_printing.save_for_retry(image, name=tracking_code, meta=...)` into `<Downloads>/to-print/`, where the IBP label watcher prints it once a printer works. The volunteer is told the path and that postage was NOT refunded via `ShipmentWorker.label_saved` (warning status + big "Label queued — do not create it again" dialog from `widgets/label_queue.py`; the form is cleared so the postage is not bought twice). Only if saving fails is the shipment refunded.
   - **Spooled but not `.ok`** (incl. `JobOutcome.UNCERTAIN` / `TRACKING_FAILED`): do NOT refund (the label may still print) and do NOT queue it; warn via `ShipmentWorker.success_with_warning` ("check the printer before reprinting").
   - **Any other exception from the print call** (not a `PrintError`): treated as uncertain, because the job may have reached the spooler — warn via `success_with_warning`, do NOT refund, do NOT save. Refund contexts cover only label preparation and the save-for-retry-failed fallback; building/showing messages after a spool or save must never refund.
-  - **Shift+Click Qt dialog path** (`print_image_with_dialog` → `DialogPrintStatus`, handled in `shipping_coordinators.py`): `CANCELED` → refund; `NOT_SENT` (failed before `QPainter.begin()` succeeded) → `ShipmentWorkflow.save_unprinted_label` + "Label Did Not Print" (refund only if saving fails); `UNCERTAIN` (failed after `begin()`) → "Check The Printer" warning, no refund.
+  - **Shift+Click Qt dialog path** (`print_image_with_dialog` → `DialogPrintStatus`, handled in `shipping_coordinators.py`): `CANCELED` → refund; `NOT_SENT` (failed before `QPainter.begin()` succeeded) → `ShipmentWorkflow.save_unprinted_label` + "Label queued" dialog (refund only if saving fails); `UNCERTAIN` (failed after `begin()`) → "Check The Printer" warning, no refund.
   - Saved-label messages must tell the volunteer to delete the file from `to-print/` before printing it by hand or refunding, so the watcher does not print it too.
+- Shared label journal (ibp-printing, also written by the shippy CLI and the label watcher), wrapped by `core/label_journal.py` (`app="shippy-gui"`):
+  - **Before buying**, `ShipmentFlowCoordinator.create_label` computes `recipient_key` from the recipient address (street1 + street2 joined by a space, same as shippy) and calls `find_duplicates` (bounded by a 2 s timeout on the UI thread). Any hit → Yes/No question with **No** as default; No buys nothing. The decision is logged.
+  - **After buying**, `ShipmentWorkflow.prepare_label` calls `record_purchase`; the print outcome then sets `printed`, `check_printer` (spooled but not ok, uncertain/unexpected errors, dialog `UNCERTAIN`), `queued` (with the saved file) or `refunded` (only when the app's refund succeeded). Journal calls never raise and must never change the refund rules above.
+  - `widgets/label_queue.py` `PendingLabelsIndicator` shows "Waiting to print: N" in the status bar (hidden at 0), reading `pending_labels()` on a background thread every 10 s and after each shipment.
+  - Tests never touch the real journal: use `tests/journal_fakes.install_fake_journal(self)`, or `ibp_printing.labels.set_journal_path(tmp)` when calling the real `save_for_retry`.

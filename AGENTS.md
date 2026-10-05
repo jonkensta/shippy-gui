@@ -34,6 +34,7 @@
 - Keep changes focused and aligned with the existing module boundaries.
 - Prefer small, local edits over broad refactors unless the task requires structural changes.
 - Preserve current PySide6 patterns and signal/slot flow when extending the UI.
+- Keep the duplicate-label guard and label-journal status updates described in `CLAUDE.md` (Key Patterns): ask (default No) before buying postage for a recipient the shared ibp-printing label journal already has a recent, queued or check-printer label for, and record every purchase and print outcome.
 - Keep the postage refund rules in `CLAUDE.md` (Key Patterns): refund only when no label image exists (or it cannot be saved); a label no printer took is saved to the `to-print/` queue with `ibp_printing.save_for_retry` and NOT refunded; a spooled job with a bad outcome, or any non-`PrintError` exception from printing, is warned about, not refunded; the Shift+Click dialog path refunds only on cancel.
 - Do not hardcode secrets, API keys, printer names, or machine-specific paths.
 - Treat `config.example.ini` as a template only; real runtime settings belong in `config.ini`.
@@ -43,6 +44,7 @@
 
 - Unit tests live in `tests/`: `QT_QPA_PLATFORM=offscreen uv run python -m unittest discover -s tests`.
 - Printing tests use a fake `ibp_printing.PrinterBackend` installed with `ibp_printing.set_backend()`.
+- Label-journal tests use `tests/journal_fakes.install_fake_journal()`; never let a test write the real journal.
 - For code changes, run targeted validation that matches the area you touched.
 - Use import or startup checks for Python modules you changed.
 - Run an application launch smoke check when changing UI or startup code.
