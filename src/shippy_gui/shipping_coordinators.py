@@ -2,7 +2,8 @@
 
 # pylint: disable=too-few-public-methods
 
-from typing import Any, Callable, Optional
+import logging
+from typing import Any, Callable, Optional, Sequence
 
 import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-error
 from PySide6.QtCore import QTimer, Qt  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
@@ -14,12 +15,14 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QWidget,
 )
 
+from shippy_gui.core import label_journal
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.constants import STATUS_COLORS
-from shippy_gui.core.models import AutocompletePrediction, Config
+from shippy_gui.core.models import AutocompletePrediction, Config, RecipientAddress
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.core.shipment_workflow import (
     ShipmentWorkflow,
+    ShipmentWorkflowResult,
     dialog_uncertain_warning,
 )
 from shippy_gui.printing.printer_manager import (
@@ -28,8 +31,11 @@ from shippy_gui.printing.printer_manager import (
 )
 from shippy_gui.widgets.address_form import AddressForm
 from shippy_gui.widgets.autocomplete import GoogleMapsCompleter
+from shippy_gui.widgets.label_queue import confirm_duplicate_label, show_label_queued
 from shippy_gui.widgets.shipment_controls import ShipmentControls
 from shippy_gui.workers.shipment_worker import ShipmentWorker
+
+logger = logging.getLogger(__name__)
 
 
 class ShippingStatusPresenter:
@@ -145,6 +151,13 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         get_shipment_service: Callable[[], Optional[ShipmentService]],
         get_logo_path: Callable[[], Optional[str]],
         worker_factory: Callable[..., ShipmentWorker] = ShipmentWorker,
+        find_duplicates: Callable[
+            [label_journal.LabelIdentity], Sequence[Any]
+        ] = label_journal.find_duplicates,
+        confirm_duplicate: Callable[
+            [QWidget, Sequence[Any]], bool
+        ] = confirm_duplicate_label,
+        on_shipment_done: Optional[Callable[[], None]] = None,
     ):
         self._parent_widget = parent_widget
         self._address_search_input = address_search_input
@@ -155,6 +168,9 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._get_shipment_service = get_shipment_service
         self._get_logo_path = get_logo_path
         self._worker_factory = worker_factory
+        self._find_duplicates = find_duplicates
+        self._confirm_duplicate = confirm_duplicate
+        self._on_shipment_done = on_shipment_done or (lambda: None)
         self.worker: Optional[ShipmentWorker] = None
 
     def create_label(self) -> None:
@@ -174,16 +190,21 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             )
             return
 
-        self._shipment_controls.set_enabled(False)
-
+        # Read Shift before any question box can change the modifier state.
         use_dialog = (
             QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier
         ) == Qt.KeyboardModifier.ShiftModifier
 
+        to_address = self._address_form.get_address()
+        if not self._confirm_not_duplicate(to_address):
+            return
+
+        self._shipment_controls.set_enabled(False)
+
         self.worker = self._worker_factory(
             shipment_service=shipment_service,
             from_address=config.return_address,
-            to_address=self._address_form.get_address(),
+            to_address=to_address,
             weight_lbs=self._shipment_controls.weight_lbs,
             printer_name=self._shipment_controls.printer_name,
             logo_path=self._get_logo_path(),
@@ -204,7 +225,44 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self.worker.label_ready.connect(self._on_label_ready)
         self.worker.start()
 
-    def _on_label_ready(self, image, printer_name: str, shipment: Any) -> None:
+    def _confirm_not_duplicate(self, to_address: RecipientAddress) -> bool:
+        """Stop before buying postage when this recipient already has a label.
+
+        Returns True to go ahead. The volunteer must explicitly answer Yes to
+        create another label; the journal being unavailable never blocks.
+        """
+        try:
+            identity = label_journal.identity_for(to_address)
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.exception("Could not build the label journal key; not checking")
+            return True
+        records = list(self._find_duplicates(identity))
+        if not records:
+            return True
+
+        trackings = ", ".join(str(record.tracking_code) for record in records)
+        create = self._confirm_duplicate(self._parent_widget, records)
+        logger.warning(
+            "Possible duplicate label for %s (existing: %s): volunteer chose %s",
+            identity.recipient_label,
+            trackings,
+            "to create another label" if create else "NOT to create another label",
+        )
+        if not create:
+            self._status_presenter.set_status(
+                f"Label NOT created: {identity.recipient_label} already has one "
+                f"(tracking {trackings})",
+                "warning",
+            )
+        return create
+
+    def _on_label_ready(
+        self,
+        image,
+        printer_name: str,
+        shipment: Any,
+        prepared: Optional[ShipmentWorkflowResult] = None,
+    ) -> None:
         """Handle label ready for printing via system dialog.
 
         Canceled: refund (nothing was printed and the volunteer chose not to).
@@ -216,21 +274,29 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             image, self._parent_widget, preferred_printer_name=printer_name
         )
         if result == DialogPrintStatus.PRINTED:
+            label_journal.update_status(shipment, label_journal.STATUS_PRINTED)
             self._on_shipment_success(
                 f"Label printed! Tracking: {shipment.tracking_code}"
             )
-            return
-        if result == DialogPrintStatus.CANCELED:
+        elif result == DialogPrintStatus.CANCELED:
             self._refund_shipment(shipment, "Print canceled")
-            return
-        if result == DialogPrintStatus.NOT_SENT:
-            self._save_dialog_label(image, printer_name, shipment)
-            return
-        self._on_shipment_success_with_warning(
-            f"{dialog_uncertain_warning()} Tracking: {shipment.tracking_code}"
-        )
+        elif result == DialogPrintStatus.NOT_SENT:
+            self._save_dialog_label(image, printer_name, shipment, prepared)
+        else:
+            label_journal.update_status(shipment, label_journal.STATUS_CHECK_PRINTER)
+            self._on_shipment_success_with_warning(
+                f"{dialog_uncertain_warning()} Tracking: {shipment.tracking_code}"
+            )
+        # The worker may have finished while the print dialog was open.
+        self._on_shipment_done()
 
-    def _save_dialog_label(self, image, printer_name: str, shipment: Any) -> None:
+    def _save_dialog_label(
+        self,
+        image,
+        printer_name: str,
+        shipment: Any,
+        prepared: Optional[ShipmentWorkflowResult] = None,
+    ) -> None:
         """Queue a dialog-printed label that never started printing."""
         shipment_service = self._get_shipment_service()
         if shipment_service is None:
@@ -248,9 +314,11 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             on_progress=lambda message: self._status_presenter.set_status(
                 message, "info"
             ),
+            identity=prepared.identity if prepared else None,
+            label_record=prepared.label_record if prepared else None,
         )
         if result.saved_label_path is not None:
-            self._on_label_saved(result.message)
+            self._on_label_saved(result)
         else:
             self._on_shipment_error(result.message)
 
@@ -263,6 +331,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._status_presenter.set_status("Requesting refund...", "warning")
         try:
             shipment_service.refund_shipment(shipment.id)
+            label_journal.update_status(shipment, label_journal.STATUS_REFUNDED)
             self._status_presenter.set_status(f"{reason}. Refunded.", "warning")
         except Exception as error:  # pylint: disable=broad-exception-caught
             self._status_presenter.set_status("Refund failed", "error")
@@ -281,15 +350,23 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._status_presenter.set_status(message, "warning")
         QMessageBox.warning(self._parent_widget, "Check The Printer", message)
 
-    def _on_label_saved(self, message: str) -> None:
+    def _on_label_saved(self, result: ShipmentWorkflowResult) -> None:
         """Handle a label that did not print and was saved for printing later."""
         # Postage is kept, so clear the form like a success: re-submitting it
         # would buy a second label.
-        self._on_shipment_success(message)
-        self._status_presenter.set_status(
-            "Label did NOT print - saved to print later (postage kept)", "warning"
+        self._on_shipment_success(result.message)
+        recipient = (
+            result.identity.recipient_label if result.identity else "this recipient"
         )
-        QMessageBox.warning(self._parent_widget, "Label Did Not Print", message)
+        tracking = (
+            label_journal.tracking_ref(result.shipment) if result.shipment else "?"
+        )
+        self._status_presenter.set_status(
+            f"Label QUEUED for {recipient} (tracking {tracking}) - it will print "
+            "automatically. Do NOT create it again.",
+            "warning",
+        )
+        show_label_queued(self._parent_widget, recipient, tracking, result.message)
 
     def _on_shipment_error(self, message: str) -> None:
         """Handle shipment error."""
@@ -300,3 +377,4 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         """Handle worker thread completion."""
         self._shipment_controls.set_enabled(True)
         self.worker = None
+        self._on_shipment_done()

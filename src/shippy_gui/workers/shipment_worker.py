@@ -27,11 +27,12 @@ class ShipmentWorker(
     # Spooled (so not refunded) but the print queue reported a problem.
     success_with_warning = Signal(str)
     # No printer took the label; it was saved to the print queue folder and
-    # postage was kept (not refunded).
-    label_saved = Signal(str)
+    # postage was kept (not refunded). Carries the ShipmentWorkflowResult.
+    label_saved = Signal(object)
     error = Signal(str)  # Error message
     warning = Signal(str)  # Warning message (non-blocking)
-    label_ready = Signal(object, str, object)  # (image, printer_name, shipment_object)
+    # (image, printer_name, shipment_object, ShipmentWorkflowResult)
+    label_ready = Signal(object, str, object, object)
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
@@ -101,7 +102,10 @@ class ShipmentWorker(
         self.shipment = prepared_result.shipment
         if self.use_dialog:
             self.label_ready.emit(
-                prepared_result.image, self.printer_name, self.shipment
+                prepared_result.image,
+                self.printer_name,
+                self.shipment,
+                prepared_result,
             )
             return
 
@@ -112,7 +116,7 @@ class ShipmentWorker(
         )
         if print_result.status is ShipmentWorkflowStatus.SUCCESS:
             if print_result.saved_label_path is not None:
-                self.label_saved.emit(print_result.message)
+                self.label_saved.emit(print_result)
             elif print_result.print_warning:
                 self.success_with_warning.emit(print_result.message)
             else:
