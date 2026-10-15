@@ -813,6 +813,100 @@ class ShippingCoordinatorTests(unittest.TestCase):
         controls.clear_small_box.assert_called_once_with()
         mock_critical.assert_called_once()
 
+    def test_quick_lookup_after_ticking_keeps_cleared_notice(self):
+        """The real lookup path: merge clears the box, then "loaded" is shown."""
+        search_input = QLineEdit()
+        search_input.setText("123 Main")
+        address_form = AddressForm()
+        status_label = QLabel()
+        presenter = ShippingStatusPresenter(status_label)
+        with patch(
+            "shippy_gui.widgets.shipment_controls.get_available_printers",
+            return_value=[],
+        ):
+            controls = ShipmentControls(default_weight=8)
+        # Keep a reference: Qt drops connections to collected slots.
+        flow = ShipmentFlowCoordinator(
+            parent_widget=QWidget(),
+            address_search_input=search_input,
+            address_form=address_form,
+            shipment_controls=controls,
+            status_presenter=presenter,
+            get_config=lambda: None,
+            get_shipment_service=lambda: None,
+            get_logo_path=lambda: None,
+        )
+        lookup = AddressLookupCoordinator(
+            parent_widget=QWidget(),
+            search_input=search_input,
+            address_form=address_form,
+            status_presenter=presenter,
+            get_address_parser=lambda: Mock(
+                return_value=ParsedAddress(
+                    street1="123 Main St", city="Austin", state="TX", zipcode="78701"
+                )
+            ),
+            get_address_completer=lambda: None,
+        )
+        controls.small_box_checkbox.setChecked(True)
+
+        lookup.load_address()
+        del flow
+
+        self.assertFalse(controls.small_box)
+        self.assertEqual(
+            status_label.text(),
+            "Address loaded successfully. Box size answer cleared - tick it "
+            "again if the box still qualifies",
+        )
+        self.assertIn(STATUS_COLORS["warning"], status_label.styleSheet())
+
+        # The notice lapses once control returns to Qt.
+        QApplication.processEvents()
+        presenter.set_status("Parsing address: next...", "info")
+        self.assertEqual(status_label.text(), "Parsing address: next...")
+
+    def test_quick_lookup_without_tick_reports_plain_success(self):
+        search_input = QLineEdit()
+        search_input.setText("123 Main")
+        address_form = AddressForm()
+        status_label = QLabel()
+        presenter = ShippingStatusPresenter(status_label)
+        with patch(
+            "shippy_gui.widgets.shipment_controls.get_available_printers",
+            return_value=[],
+        ):
+            controls = ShipmentControls(default_weight=8)
+        # Keep a reference: Qt drops connections to collected slots.
+        flow = ShipmentFlowCoordinator(
+            parent_widget=QWidget(),
+            address_search_input=search_input,
+            address_form=address_form,
+            shipment_controls=controls,
+            status_presenter=presenter,
+            get_config=lambda: None,
+            get_shipment_service=lambda: None,
+            get_logo_path=lambda: None,
+        )
+        lookup = AddressLookupCoordinator(
+            parent_widget=QWidget(),
+            search_input=search_input,
+            address_form=address_form,
+            status_presenter=presenter,
+            get_address_parser=lambda: Mock(
+                return_value=ParsedAddress(
+                    street1="123 Main St", city="Austin", state="TX", zipcode="78701"
+                )
+            ),
+            get_address_completer=lambda: None,
+        )
+
+        lookup.load_address()
+        del flow
+
+        self.assertEqual(status_label.text(), "Address loaded successfully")
+        self.assertIn(STATUS_COLORS["success"], status_label.styleSheet())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -45,9 +45,28 @@ class ShippingStatusPresenter:
 
     def __init__(self, status_label: QLabel):
         self._status_label = status_label
+        self._notice: Optional[str] = None
+
+    def add_notice(self, notice: str) -> None:
+        """Keep ``notice`` on any status set before control returns to Qt.
+
+        For a warning raised in the middle of an action (e.g. the box answer
+        cleared while a looked-up address is filled in) that the action's own
+        final status would otherwise overwrite. It lapses on the next event
+        loop pass, so it never sticks to unrelated later messages.
+        """
+        self._notice = notice
+        QTimer.singleShot(0, self._drop_notice)
+
+    def _drop_notice(self) -> None:
+        self._notice = None
 
     def set_status(self, message: str, status_type: str = "info") -> None:
         """Apply a status message and color to the label."""
+        if self._notice:
+            message = f"{message.rstrip('.')}. {self._notice}"
+            if status_type != "error":
+                status_type = "warning"
         color = STATUS_COLORS.get(status_type, STATUS_COLORS["info"])
         self._status_label.setText(message)
         self._status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
@@ -190,11 +209,16 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         "Box size answer cleared because the address changed - tick it again "
         "if the box still qualifies"
     )
+    # Appended to the status an address lookup sets right after clearing it.
+    BOX_ANSWER_CLEARED_NOTICE = (
+        "Box size answer cleared - tick it again if the box still qualifies"
+    )
 
     def _on_recipient_changed(self) -> None:
         """Forget the box answer for a different recipient, saying so if it was ticked."""
         if self._shipment_controls.clear_small_box() is True:
             self._status_presenter.set_status(self.BOX_ANSWER_CLEARED_TEXT, "warning")
+            self._status_presenter.add_notice(self.BOX_ANSWER_CLEARED_NOTICE)
 
     def create_label(self) -> None:
         """Create and print a shipping label."""
