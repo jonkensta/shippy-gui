@@ -8,7 +8,7 @@ from shippy_gui.widgets.address_form import AddressForm
 
 
 class AddressReplacedSignalTests(unittest.TestCase):
-    """address_replaced fires when the whole address changes, not on typing."""
+    """recipient_changed fires on any change of recipient, typing included."""
 
     @classmethod
     def setUpClass(cls):
@@ -17,7 +17,7 @@ class AddressReplacedSignalTests(unittest.TestCase):
     def setUp(self):
         self.form = AddressForm()
         self.emitted: list[bool] = []
-        self.form.address_replaced.connect(lambda: self.emitted.append(True))
+        self.form.recipient_changed.connect(lambda: self.emitted.append(True))
 
     def test_clear_emits(self):
         self.form.clear()
@@ -31,9 +31,19 @@ class AddressReplacedSignalTests(unittest.TestCase):
         self.form.merge_address({"zipcode": "78701"})
         self.assertEqual(self.emitted, [True])
 
-    def test_typing_in_a_field_does_not_emit(self):
-        self.form.name_input.setText("Jane Doe")
-        self.assertEqual(self.emitted, [])
+    def test_typing_in_any_field_emits(self):
+        for field in (
+            self.form.name_input,
+            self.form.company_input,
+            self.form.street1_input,
+            self.form.street2_input,
+            self.form.city_input,
+            self.form.state_input,
+            self.form.zipcode_input,
+        ):
+            self.emitted.clear()
+            field.textEdited.emit("x")
+            self.assertEqual(self.emitted, [True], field.objectName())
 
 
 if __name__ == "__main__":

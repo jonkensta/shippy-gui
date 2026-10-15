@@ -20,10 +20,9 @@ from shippy_gui.core.constants import (
     DEFAULT_WEIGHT_LBS,
     PRINTER_POLL_FOUND_MS,
     PRINTER_POLL_MS,
-    SMALL_BOX_HEIGHT_IN,
-    SMALL_BOX_LENGTH_IN,
+    SMALL_BOX_MAX_CUBIC_IN,
+    SMALL_BOX_MAX_SIDE_IN,
     SMALL_BOX_MIN_WEIGHT_LBS,
-    SMALL_BOX_WIDTH_IN,
     STATUS_COLORS,
     WEIGHT_MAX_LBS,
     WEIGHT_MIN_LBS,
@@ -34,12 +33,6 @@ from shippy_gui.printing.printer_manager import (
 )
 
 logger = logging.getLogger(__name__)
-
-_SMALL_BOX = "×".join(
-    f"{side:g}"
-    for side in (SMALL_BOX_LENGTH_IN, SMALL_BOX_WIDTH_IN, SMALL_BOX_HEIGHT_IN)
-)
-_SMALL_BOX_LONGEST = max(SMALL_BOX_LENGTH_IN, SMALL_BOX_WIDTH_IN, SMALL_BOX_HEIGHT_IN)
 
 
 class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
@@ -61,14 +54,16 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
         "If no printers appear, check that the printer is plugged in, turned on, and ready."
     )
     SMALL_BOX_TEXT = (
-        f"Box fits within {_SMALL_BOX} in "
-        f"(no side longer than {_SMALL_BOX_LONGEST:g} in)"
+        f"Box is {SMALL_BOX_MAX_CUBIC_IN:,} cu in or less (L×W×H, sides rounded up) "
+        f"and no side over {SMALL_BOX_MAX_SIDE_IN} in"
     )
     SMALL_BOX_TOOLTIP = (
-        f"Tick this only if the box fits within {_SMALL_BOX} inches:\n"
-        "measure each side; none may be longer than "
-        f"{_SMALL_BOX_LONGEST:g} inches.\n"
-        "USPS rounds each side UP to the next whole inch (12.5 counts as 13).\n"
+        "Measure each side in inches and round it UP to the next whole inch\n"
+        "(USPS does: 12.5 counts as 13). Tick this only if\n"
+        f"length × width × height is {SMALL_BOX_MAX_CUBIC_IN:,} or less AND no side is "
+        f"over {SMALL_BOX_MAX_SIDE_IN} in.\n"
+        "Qualifies: 12×12×12, 18×12×8, 16×12×9, 20×10×8.\n"
+        "Doesn't: 14×12×11 (1,848 cu in), 24×10×7 (a side over 22 in).\n"
         "Small boxes can sometimes ship cheaper by Ground Advantage; the\n"
         "program always buys the cheapest rate either way.\n"
         "If you are not sure, leave it unticked: a box declared smaller than\n"

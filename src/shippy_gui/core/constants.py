@@ -87,10 +87,11 @@ DEFAULT_PARCEL_HEIGHT_IN = 10.0
 # cubic foot (1,728 cu in); bigger boxes, like the default above, pay
 # dimensional weight (L x W x H / 166), so Library Mail always wins for them.
 # USPS rounds each side UP to a whole inch before multiplying, and adds
-# surcharges for any side over SMALL_BOX_MAX_SIDE_IN. So the question is per
-# side, not volume: when the volunteer says the box fits within the small box
-# below on every side, it is declared as that box, which is honest, and Ground
-# Advantage is quoted fairly and wins when it is cheaper.
+# surcharges for any side over SMALL_BOX_MAX_SIDE_IN. A box qualifies when,
+# with sides rounded up, L x W x H <= SMALL_BOX_MAX_CUBIC_IN and no side is
+# over SMALL_BOX_MAX_SIDE_IN. Any qualifying box is priced the same, so it is
+# declared as the 12 in cube below, and Ground Advantage is quoted fairly and
+# wins when it is cheaper.
 # Below SMALL_BOX_MIN_WEIGHT_LBS Library Mail is cheaper either way, so the
 # question is not asked.
 SMALL_BOX_MIN_WEIGHT_LBS = 4

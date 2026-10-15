@@ -326,16 +326,18 @@ class SmallBoxQuestionTests(unittest.TestCase):
         controls.set_enabled(True)
         self.assertTrue(controls.small_box_checkbox.isEnabled())
 
-    def test_question_is_per_side_not_volume(self, _printers):
+    def test_question_states_volume_and_longest_side(self, _printers):
         controls = ShipmentControls(default_weight=8)
 
         self.assertEqual(
             controls.small_box_checkbox.text(),
-            "Box fits within 12×12×12 in (no side longer than 12 in)",
+            "Box is 1,728 cu in or less (L×W×H, sides rounded up) "
+            "and no side over 22 in",
         )
         tooltip = controls.small_box_checkbox.toolTip()
-        self.assertIn("measure each side", tooltip)
-        self.assertIn("rounds each side UP", tooltip)
+        self.assertIn("round it UP", tooltip)
+        self.assertIn("Qualifies: 12×12×12, 18×12×8, 16×12×9, 20×10×8.", tooltip)
+        self.assertIn("14×12×11 (1,848 cu in), 24×10×7", tooltip)
         self.assertIn("leave it unticked", tooltip)
 
     def test_clear_small_box_unticks(self, _printers):

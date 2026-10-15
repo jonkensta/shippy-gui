@@ -630,12 +630,12 @@ class ShippingCoordinatorTests(unittest.TestCase):
         library_mail_missing=False,
     )
 
-    def test_new_or_cleared_address_clears_box_answer(self):
+    def test_recipient_change_clears_box_answer(self):
         coordinator, _workers, _confirm, _label, controls, _done = (
             self._guarded_coordinator(answer=True)
         )
         # pylint: disable=protected-access
-        coordinator._address_form.address_replaced.connect.assert_called_once_with(
+        coordinator._address_form.recipient_changed.connect.assert_called_once_with(
             controls.clear_small_box
         )
 
@@ -730,6 +730,36 @@ class ShippingCoordinatorTests(unittest.TestCase):
 
         self.assertIn("Label QUEUED", status_label.text())
         self.assertTrue(status_label.text().endswith(self._RATES.text))
+
+    def test_validation_error_clears_box_answer(self):
+        coordinator, workers, _confirm, status_label, controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        # pylint: disable=protected-access
+        coordinator._address_form.validate_required.return_value = (
+            "Please enter ZIP code"
+        )
+
+        coordinator.create_label()
+
+        self.assertEqual(workers, [])
+        controls.clear_small_box.assert_called_once_with()
+        self.assertEqual(status_label.text(), "Please enter ZIP code")
+
+    @patch("shippy_gui.shipping_coordinators.QMessageBox.critical")
+    def test_missing_services_clears_box_answer(self, mock_critical):
+        coordinator, workers, _confirm, _label, controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        coordinator._get_shipment_service = (
+            lambda: None
+        )  # pylint: disable=protected-access
+
+        coordinator.create_label()
+
+        self.assertEqual(workers, [])
+        controls.clear_small_box.assert_called_once_with()
+        mock_critical.assert_called_once()
 
 
 if __name__ == "__main__":

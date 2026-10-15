@@ -28,9 +28,9 @@ class AddressForm(QWidget):
         "zipcode": "zipcode_input",
     }
 
-    # Emitted when the whole address is cleared or replaced by a looked-up
-    # one (not on typing in a field), i.e. the volunteer moved to a new package.
-    address_replaced = Signal()
+    # Emitted whenever the recipient changes in any way: the form is cleared,
+    # a looked-up address is filled in, or the volunteer types in a field.
+    recipient_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -74,6 +74,19 @@ class AddressForm(QWidget):
         self.zipcode_input.setToolTip("5-digit ZIP code (required)")
         layout.addRow("ZIP Code:", self.zipcode_input)
 
+        # textEdited fires only for the volunteer's own typing; programmatic
+        # changes (clear/set/merge) emit recipient_changed themselves.
+        for field in (
+            self.name_input,
+            self.company_input,
+            self.street1_input,
+            self.street2_input,
+            self.city_input,
+            self.state_input,
+            self.zipcode_input,
+        ):
+            field.textEdited.connect(self.recipient_changed)
+
     def clear(self):
         """Clear all fields."""
         self.name_input.clear()
@@ -83,7 +96,7 @@ class AddressForm(QWidget):
         self.city_input.clear()
         self.state_input.clear()
         self.zipcode_input.clear()
-        self.address_replaced.emit()
+        self.recipient_changed.emit()
 
     def get_address(self) -> RecipientAddress:
         """Get the address data as a RecipientAddress model."""
@@ -108,7 +121,7 @@ class AddressForm(QWidget):
             if key in data_dict:
                 widget = getattr(self, widget_name)
                 widget.setText(data_dict[key])
-        self.address_replaced.emit()
+        self.recipient_changed.emit()
 
     def merge_address(self, data: Union[dict, ParsedAddress]):
         """Populate only non-empty parsed values without clearing existing fields."""
@@ -122,7 +135,7 @@ class AddressForm(QWidget):
             if value:
                 widget = getattr(self, widget_name)
                 widget.setText(value)
-        self.address_replaced.emit()
+        self.recipient_changed.emit()
 
     def validate_required(self) -> Optional[str]:
         """Validate required fields and return error message if any."""

@@ -183,8 +183,8 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._rate_summary: Optional[RateSummary] = None
         # The summary shown by the last success, re-shown by follow-up warnings.
         self._shown_rate_summary: Optional[RateSummary] = None
-        # A new or cleared address means a new package: forget the box answer.
-        self._address_form.address_replaced.connect(
+        # Any change of recipient means another package: forget the box answer.
+        self._address_form.recipient_changed.connect(
             self._shipment_controls.clear_small_box
         )
 
@@ -196,12 +196,14 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             self._address_form.validate_required() or self._shipment_controls.validate()
         )
         if validation_error:
+            self._shipment_controls.clear_small_box()
             self._status_presenter.set_status(validation_error, "error")
             return
 
         shipment_service = self._get_shipment_service()
         config = self._get_config()
         if shipment_service is None or config is None:
+            self._shipment_controls.clear_small_box()
             QMessageBox.critical(
                 self._parent_widget, "Error", "Services not configured."
             )
