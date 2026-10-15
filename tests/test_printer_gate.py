@@ -77,6 +77,25 @@ class NoPrinterDialogTests(unittest.TestCase):
         self.assertTrue(dialog.cancel_button.isDefault())
         self.assertFalse(dialog.continue_button.isDefault())
 
+    def test_choices_are_logged(self):
+        logger_name = "shippy_gui.widgets.printer_gate"
+        for button, expected in (
+            ("continue_button", "continued without a printer"),
+            ("cancel_button", "cancelled: no printer"),
+        ):
+            controls = ShipmentControls(discover=lambda: [])
+
+            def click(name=button):
+                getattr(QApplication.activeModalWidget(), name).click()
+
+            QTimer.singleShot(0, click)
+            with self.assertLogs(logger_name, "INFO") as logs:
+                wait_for_printer(None, controls)
+            self.assertEqual(
+                [record.getMessage() for record in logs.records],
+                ["no printer before purchase; waiting", expected],
+            )
+
     def test_text_explains_the_to_print_folder(self):
         dialog = NoPrinterDialog(ShipmentControls(discover=lambda: []))
         text = " ".join(label.text() for label in dialog.findChildren(QLabel))

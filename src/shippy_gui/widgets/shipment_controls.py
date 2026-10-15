@@ -13,9 +13,11 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
     QPushButton,
 )
 from PySide6.QtCore import QTimer, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+import ibp_printing
 
 from shippy_gui.core.constants import (
     DEFAULT_WEIGHT_LBS,
+    PRINTER_POLL_FOUND_MS,
     PRINTER_POLL_MS,
     STATUS_COLORS,
     WEIGHT_MAX_LBS,
@@ -66,12 +68,17 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
         *,
         discover: Optional[Callable[[], list[PrinterInfo]]] = None,
         poll_interval_ms: int = PRINTER_POLL_MS,
+        found_poll_interval_ms: int = PRINTER_POLL_FOUND_MS,
     ):
         super().__init__(parent)
         self._default_weight = default_weight
         self._discover = discover
         self._controls_enabled = True
         self._has_printers = False
+        # Printer names from the last applied scan; None before the first one.
+        self._last_printer_names: Optional[list[str]] = None
+        self._poll_interval_ms = poll_interval_ms
+        self._found_poll_interval_ms = found_poll_interval_ms
         self._poll_in_flight = False
         self._polled.connect(self._apply_polled)
         self._poll_timer = QTimer(self)
@@ -126,7 +133,11 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
         return (self._discover or get_available_printers)()
 
     def start_printer_polling(self) -> None:
-        """Re-scan for printers in the background every poll interval."""
+        """Re-scan for printers in the background.
+
+        Every ``poll_interval_ms`` while no printer is found, every
+        ``found_poll_interval_ms`` once one is.
+        """
         self._poll_timer.start()
 
     def stop_printer_polling(self) -> None:
@@ -145,7 +156,12 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
     def _poll_in_background(self) -> None:
         printers: Optional[list[PrinterInfo]]
         try:
-            printers = list(self._scan())
+            # Background polls would log a full discovery every pass and rotate
+            # real print history out of the ibp-printing logs; changes are
+            # logged by _note_printer_change instead. The first scan (at
+            # start-up) and manual Refresh still log in full.
+            with ibp_printing.quiet():
+                printers = list(self._scan())
         except Exception:  # pylint: disable=broad-exception-caught
             logger.exception("Background printer scan failed")
             printers = None
@@ -161,8 +177,33 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
             return
         self._apply_printers(printers)
 
+    def _note_printer_change(self, printers: list[PrinterInfo]) -> None:
+        """Log when a printer appears or disappears, and set the poll rate."""
+        names = [printer.system_name for printer in printers]
+        previous = self._last_printer_names
+        self._last_printer_names = names
+        if previous is None:
+            if names:
+                logger.info("label printer found: %s", ", ".join(names))
+            else:
+                logger.info("no label printer found at start-up")
+        elif names and not previous:
+            logger.info("label printer found: %s", ", ".join(names))
+        elif previous and not names:
+            logger.info("label printer lost (was %s)", ", ".join(previous))
+        elif names != previous:
+            logger.info(
+                "label printers changed: %s (was %s)",
+                ", ".join(names),
+                ", ".join(previous),
+            )
+        self._poll_timer.setInterval(
+            self._found_poll_interval_ms if names else self._poll_interval_ms
+        )
+
     def _apply_printers(self, printers: list[PrinterInfo]) -> None:
         """Show ``printers``, keeping the selection when it is still there."""
+        self._note_printer_change(printers)
         current = [
             self.printer_combo.itemData(index)
             for index in range(self.printer_combo.count())

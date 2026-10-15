@@ -202,6 +202,67 @@ class PrinterPollingTests(unittest.TestCase):
         self.assertEqual(cleared, [])
         self.assertEqual(controls.printer_name, "Beta 9999:0001")
 
+    def test_poll_rate_slows_once_a_printer_is_found(self):
+        scans = [[], [PrinterInfo("Alpha 20d1:7008")], []]
+        controls = ShipmentControls(
+            discover=lambda: scans.pop(0),
+            poll_interval_ms=2_000,
+            found_poll_interval_ms=10_000,
+        )
+        timer = controls._poll_timer  # pylint: disable=protected-access
+        self.assertEqual(timer.interval(), 2_000)
+
+        controls.poll_printers()
+        self._wait_for_poll(controls)
+        self.assertEqual(timer.interval(), 10_000)
+
+        controls.poll_printers()
+        self._wait_for_poll(controls)
+        self.assertEqual(timer.interval(), 2_000)
+
+    def test_printer_found_and_lost_are_logged(self):
+        scans = [[], [PrinterInfo("Alpha 20d1:7008")], []]
+        logger_name = "shippy_gui.widgets.shipment_controls"
+        with self.assertLogs(logger_name, "INFO") as logs:
+            controls = ShipmentControls(discover=lambda: scans.pop(0))
+            controls.poll_printers()
+            self._wait_for_poll(controls)
+            controls.poll_printers()
+            self._wait_for_poll(controls)
+        messages = [record.getMessage() for record in logs.records]
+        self.assertEqual(
+            messages,
+            [
+                "no label printer found at start-up",
+                "label printer found: Alpha 20d1:7008",
+                "label printer lost (was Alpha 20d1:7008)",
+            ],
+        )
+
+    def test_unchanged_poll_logs_nothing(self):
+        printers = [PrinterInfo("Alpha 20d1:7008")]
+        controls = ShipmentControls(discover=lambda: list(printers))
+        with self.assertNoLogs("shippy_gui.widgets.shipment_controls", "INFO"):
+            controls.poll_printers()
+            self._wait_for_poll(controls)
+
+    def test_background_poll_runs_quietly_but_startup_scan_does_not(self):
+        import ibp_printing.log  # pylint: disable=import-outside-toplevel
+
+        quiet_flags = []
+
+        def scan():
+            # pylint: disable-next=protected-access
+            quiet_flags.append(ibp_printing.log._QUIET.get())
+            return [PrinterInfo("Alpha 20d1:7008")]
+
+        controls = ShipmentControls(discover=scan)
+        controls.poll_printers()
+        self._wait_for_poll(controls)
+        controls.refresh_printers()
+
+        self.assertEqual(quiet_flags, [False, True, False])
+
 
 if __name__ == "__main__":
     unittest.main()

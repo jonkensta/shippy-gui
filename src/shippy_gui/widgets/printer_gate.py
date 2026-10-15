@@ -1,5 +1,6 @@
 """The "plug in the label printer" question asked before postage is bought."""
 
+import logging
 from enum import Enum
 from typing import Optional
 
@@ -14,6 +15,8 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 )
 
 from shippy_gui.widgets.shipment_controls import ShipmentControls
+
+logger = logging.getLogger(__name__)
 
 NO_PRINTER_TITLE = "No label printer detected"
 
@@ -101,6 +104,14 @@ def wait_for_printer(
     """Return at once if a printer is ready; otherwise ask and wait for one."""
     if controls.has_printers:
         return PrinterGateResult.PRINTER_FOUND
+    logger.info("no printer before purchase; waiting")
     dialog = NoPrinterDialog(controls, parent)
     dialog.exec()
-    return dialog.result_choice
+    choice = dialog.result_choice
+    if choice is PrinterGateResult.PRINTER_FOUND:
+        logger.info("label printer found while waiting; buying the label")
+    elif choice is PrinterGateResult.CONTINUE_ANYWAY:
+        logger.info("continued without a printer")
+    else:
+        logger.info("cancelled: no printer")
+    return choice

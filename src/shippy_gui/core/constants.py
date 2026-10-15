@@ -17,9 +17,13 @@ PRINT_JOB_NAME = "Shipping Label"
 # as an error rather than a timeout.
 PRINT_TRACK_TIMEOUT_S = 15.0
 
-# How often the printer status line re-checks for a usable label printer.
-# Discovery only lists devices and never opens the printer, so this is cheap.
+# How often the printer status line re-checks for a usable label printer while
+# none is found, so a printer that was just plugged in shows up quickly.
 PRINTER_POLL_MS = 2_000
+# How often it re-checks once a printer is found. On Windows each check briefly
+# opens the USB device to read its ID, so it is kept rare while a printer is
+# there (and could be printing for the label watcher).
+PRINTER_POLL_FOUND_MS = 10_000
 
 
 # ============================================================================
