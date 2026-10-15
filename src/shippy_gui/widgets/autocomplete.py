@@ -74,8 +74,8 @@ class GoogleMapsCompleter(
         self.current_request_id = -1
 
         # Set up string list model for completions
-        self.model = QStringListModel()
-        self.setModel(self.model)
+        self._completion_model = QStringListModel()
+        self.setModel(self._completion_model)
         self.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
 
@@ -96,13 +96,13 @@ class GoogleMapsCompleter(
         # Minimum 3 characters required
         if len(text) < 3:
             self.current_predictions = []
-            self.model.setStringList([])
+            self._completion_model.setStringList([])
             return
 
         # Check cache first
         if text in self.cache:
             self.current_predictions = self.cache[text]
-            self.model.setStringList(
+            self._completion_model.setStringList(
                 [prediction.description for prediction in self.current_predictions]
             )
             # Force the popup to show when using cached results
@@ -160,7 +160,7 @@ class GoogleMapsCompleter(
         if text == self.current_text:
             self.current_predictions = predictions
             descriptions = [prediction.description for prediction in predictions]
-            self.model.setStringList(descriptions)
+            self._completion_model.setStringList(descriptions)
             self._log_duplicate_descriptions(descriptions)
             # Force the popup to show since the model was updated asynchronously
             if predictions:
@@ -179,7 +179,7 @@ class GoogleMapsCompleter(
 
         # Clear completions on error
         self.current_predictions = []
-        self.model.setStringList([])
+        self._completion_model.setStringList([])
         logger.warning("Google Maps API error: %s", error_message)
 
     def get_prediction_for_text(

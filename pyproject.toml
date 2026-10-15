@@ -40,3 +40,17 @@ ibp-printing = { git = "https://github.com/jonkensta/ibp-printing", rev = "523c0
 [build-system]
 requires = ["uv_build>=0.9.21,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+# Tools the pre-commit hooks run with `uv run` (they need the project's
+# dependencies importable, so they live in the project environment).
+dev = [
+    "black",
+    "mypy",
+    "pylint",
+]
+
+[[tool.mypy.overrides]]
+# googlemaps ships no type information.
+module = ["googlemaps", "googlemaps.*"]
+ignore_missing_imports = true
