@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]
@@ -101,7 +101,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/fe/26/bca4d737a9acea25e
 [[package]]
 name = "ibp-printing"
 version = "0.1.1"
-source = { git = "https://github.com/jonkensta/ibp-printing?rev=2406c4ae84f32ed2901e0758c1ec5779cc1e4ce8#2406c4ae84f32ed2901e0758c1ec5779cc1e4ce8" }
+source = { git = "https://github.com/jonkensta/ibp-printing?rev=523c07ca7d577c7034c7eda6a2ba93f4e581e59e#523c07ca7d577c7034c7eda6a2ba93f4e581e59e" }
 dependencies = [
     { name = "pillow" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
@@ -399,8 +399,8 @@ linux = [
 requires-dist = [
     { name = "easypost", specifier = ">=10.3.0" },
     { name = "googlemaps", specifier = ">=4.10.0" },
-    { name = "ibp-printing", git = "https://github.com/jonkensta/ibp-printing?rev=2406c4ae84f32ed2901e0758c1ec5779cc1e4ce8" },
-    { name = "ibp-printing", extras = ["linux"], marker = "extra == 'linux'", git = "https://github.com/jonkensta/ibp-printing?rev=2406c4ae84f32ed2901e0758c1ec5779cc1e4ce8" },
+    { name = "ibp-printing", git = "https://github.com/jonkensta/ibp-printing?rev=523c07ca7d577c7034c7eda6a2ba93f4e581e59e" },
+    { name = "ibp-printing", extras = ["linux"], marker = "extra == 'linux'", git = "https://github.com/jonkensta/ibp-printing?rev=523c07ca7d577c7034c7eda6a2ba93f4e581e59e" },
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pyside6", specifier = ">=6.8.0" },
