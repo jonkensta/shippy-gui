@@ -19,6 +19,7 @@ from shippy_gui.core import label_journal
 from shippy_gui.core.addresses import AddressParser
 from shippy_gui.core.constants import STATUS_COLORS
 from shippy_gui.core.models import AutocompletePrediction, Config, RecipientAddress
+from shippy_gui.core.rates import RateSummary
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.core.shipment_workflow import (
     ShipmentWorkflow,
@@ -177,9 +178,20 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._on_shipment_done = on_shipment_done or (lambda: None)
         self._confirm_printer = confirm_printer
         self.worker: Optional[ShipmentWorker] = None
+        # Quoted rates vs the one bought, kept for the Shift+Click print
+        # dialog path, where the worker may finish before the label prints.
+        self._rate_summary: Optional[RateSummary] = None
+        # The summary shown by the last success, re-shown by follow-up warnings.
+        self._shown_rate_summary: Optional[RateSummary] = None
+        # A new or cleared address means a new package: forget the box answer.
+        self._address_form.address_replaced.connect(
+            self._shipment_controls.clear_small_box
+        )
 
     def create_label(self) -> None:
         """Create and print a shipping label."""
+        self._rate_summary = None
+        self._shown_rate_summary = None
         validation_error = (
             self._address_form.validate_required() or self._shipment_controls.validate()
         )
@@ -217,6 +229,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             printer_name=self._shipment_controls.printer_name,
             logo_path=self._get_logo_path(),
             use_dialog=use_dialog,
+            small_box=self._shipment_controls.small_box,
         )
 
         self.worker.progress.connect(
@@ -257,6 +270,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             "to create another label" if create else "NOT to create another label",
         )
         if not create:
+            self._shipment_controls.clear_small_box()
             self._status_presenter.set_status(
                 f"Label NOT created: {identity.recipient_label} already has one "
                 f"(tracking {trackings})",
@@ -274,6 +288,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         choice = self._confirm_printer(self._parent_widget, self._shipment_controls)
         if choice is PrinterGateResult.CANCELED:
             logger.info("No label printer detected: volunteer canceled")
+            self._shipment_controls.clear_small_box()
             self._status_presenter.set_status(
                 "Label NOT created: no label printer detected", "warning"
             )
@@ -299,6 +314,8 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         a PrintError, refunding only if saving fails. Failed after printing
         started: warn, no refund, nothing saved.
         """
+        if prepared is not None:
+            self._rate_summary = prepared.rate_summary
         result = print_image_with_dialog(
             image, self._parent_widget, preferred_printer_name=printer_name
         )
@@ -353,6 +370,9 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
 
     def _refund_shipment(self, shipment, reason: str) -> None:
         """Request a refund for a shipment."""
+        # No label was made: forget this box's answer and quoted rates.
+        self._rate_summary = None
+        self._shipment_controls.clear_small_box()
         shipment_service = self._get_shipment_service()
         if shipment_service is None:
             return
@@ -366,9 +386,21 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             self._status_presenter.set_status("Refund failed", "error")
             QMessageBox.critical(self._parent_widget, "Refund Error", str(error))
 
+    def _with_rates(self, message: str) -> str:
+        """Append the quoted-rate comparison of the last label, if any."""
+        if self._shown_rate_summary is None:
+            return message
+        return f"{message}\n{self._shown_rate_summary.text}"
+
     def _on_shipment_success(self, message: str) -> None:
         """Handle successful shipment."""
-        self._status_presenter.set_status(message, "success")
+        summary = getattr(self.worker, "rate_summary", None) or self._rate_summary
+        self._rate_summary = None
+        self._shown_rate_summary = summary if isinstance(summary, RateSummary) else None
+        status_type = "success"
+        if self._shown_rate_summary and self._shown_rate_summary.library_mail_missing:
+            status_type = "warning"
+        self._status_presenter.set_status(self._with_rates(message), status_type)
         self._address_form.clear()
         self._shipment_controls.reset()
         self._address_search_input.setFocus()
@@ -376,7 +408,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
     def _on_shipment_success_with_warning(self, message: str) -> None:
         """Handle a label that was spooled but may not have printed."""
         self._on_shipment_success(message)
-        self._status_presenter.set_status(message, "warning")
+        self._status_presenter.set_status(self._with_rates(message), "warning")
         QMessageBox.warning(self._parent_widget, "Check The Printer", message)
 
     def _on_label_saved(self, result: ShipmentWorkflowResult) -> None:
@@ -391,14 +423,19 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             label_journal.tracking_ref(result.shipment) if result.shipment else "?"
         )
         self._status_presenter.set_status(
-            f"Label QUEUED for {recipient} (tracking {tracking}) - it will print "
-            "automatically. Do NOT create it again.",
+            self._with_rates(
+                f"Label QUEUED for {recipient} (tracking {tracking}) - it will "
+                "print automatically. Do NOT create it again."
+            ),
             "warning",
         )
         show_label_queued(self._parent_widget, recipient, tracking, result.message)
 
     def _on_shipment_error(self, message: str) -> None:
         """Handle shipment error."""
+        # No label: forget the quoted rates and, to be safe, the box answer.
+        self._rate_summary = None
+        self._shipment_controls.clear_small_box()
         self._status_presenter.set_status("Shipment failed", "error")
         QMessageBox.critical(self._parent_widget, "Shipment Error", message)
 

@@ -83,6 +83,23 @@ DEFAULT_PARCEL_LENGTH_IN = 20.0
 DEFAULT_PARCEL_WIDTH_IN = 14.0
 DEFAULT_PARCEL_HEIGHT_IN = 10.0
 
+# Ground Advantage is priced on actual weight only for boxes of at most one
+# cubic foot (1,728 cu in); bigger boxes, like the default above, pay
+# dimensional weight (L x W x H / 166), so Library Mail always wins for them.
+# USPS rounds each side UP to a whole inch before multiplying, and adds
+# surcharges for any side over SMALL_BOX_MAX_SIDE_IN. So the question is per
+# side, not volume: when the volunteer says the box fits within the small box
+# below on every side, it is declared as that box, which is honest, and Ground
+# Advantage is quoted fairly and wins when it is cheaper.
+# Below SMALL_BOX_MIN_WEIGHT_LBS Library Mail is cheaper either way, so the
+# question is not asked.
+SMALL_BOX_MIN_WEIGHT_LBS = 4
+SMALL_BOX_MAX_CUBIC_IN = 1728
+SMALL_BOX_MAX_SIDE_IN = 22
+SMALL_BOX_LENGTH_IN = 12.0
+SMALL_BOX_WIDTH_IN = 12.0
+SMALL_BOX_HEIGHT_IN = 12.0
+
 # Weight limits for Library Mail (in pounds)
 WEIGHT_MIN_LBS = 1
 WEIGHT_MAX_LBS = 70

@@ -264,5 +264,88 @@ class PrinterPollingTests(unittest.TestCase):
         self.assertEqual(quiet_flags, [False, True, False])
 
 
+@patch(
+    "shippy_gui.widgets.shipment_controls.get_available_printers",
+    return_value=[PrinterInfo("Alpha 20d1:7008")],
+)
+class SmallBoxQuestionTests(unittest.TestCase):
+    """The "box is 12x12x12 or smaller" question next to the weight."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_hidden_and_disabled_under_four_pounds(self, _printers):
+        controls = ShipmentControls(default_weight=3)
+
+        self.assertTrue(controls.small_box_checkbox.isHidden())
+        self.assertFalse(controls.small_box_checkbox.isEnabled())
+        self.assertFalse(controls.small_box_applies)
+
+    def test_shown_enabled_and_unticked_from_four_pounds(self, _printers):
+        controls = ShipmentControls(default_weight=3)
+
+        controls.weight_input.setValue(4)
+
+        self.assertFalse(controls.small_box_checkbox.isHidden())
+        self.assertTrue(controls.small_box_checkbox.isEnabled())
+        self.assertFalse(controls.small_box_checkbox.isChecked())
+        self.assertFalse(controls.small_box)
+
+    def test_ticked_box_is_reported_as_small(self, _printers):
+        controls = ShipmentControls(default_weight=8)
+
+        controls.small_box_checkbox.setChecked(True)
+
+        self.assertTrue(controls.small_box)
+
+    def test_dropping_under_four_pounds_clears_the_answer(self, _printers):
+        controls = ShipmentControls(default_weight=8)
+        controls.small_box_checkbox.setChecked(True)
+
+        controls.weight_input.setValue(3)
+        controls.weight_input.setValue(8)
+
+        self.assertFalse(controls.small_box_checkbox.isChecked())
+        self.assertFalse(controls.small_box)
+
+    def test_reset_after_a_label_clears_the_answer_but_keeps_weight(self, _printers):
+        controls = ShipmentControls(default_weight=8)
+        controls.small_box_checkbox.setChecked(True)
+
+        controls.reset()
+
+        self.assertFalse(controls.small_box)
+        self.assertEqual(controls.weight_lbs, 8)
+
+    def test_disabled_while_a_label_is_in_progress(self, _printers):
+        controls = ShipmentControls(default_weight=8)
+
+        controls.set_enabled(False)
+        self.assertFalse(controls.small_box_checkbox.isEnabled())
+        controls.set_enabled(True)
+        self.assertTrue(controls.small_box_checkbox.isEnabled())
+
+    def test_question_is_per_side_not_volume(self, _printers):
+        controls = ShipmentControls(default_weight=8)
+
+        self.assertEqual(
+            controls.small_box_checkbox.text(),
+            "Box fits within 12×12×12 in (no side longer than 12 in)",
+        )
+        tooltip = controls.small_box_checkbox.toolTip()
+        self.assertIn("measure each side", tooltip)
+        self.assertIn("rounds each side UP", tooltip)
+        self.assertIn("leave it unticked", tooltip)
+
+    def test_clear_small_box_unticks(self, _printers):
+        controls = ShipmentControls(default_weight=8)
+        controls.small_box_checkbox.setChecked(True)
+
+        controls.clear_small_box()
+
+        self.assertFalse(controls.small_box)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 """Address form widget."""
 
 from typing import Optional, Union
+from PySide6.QtCore import Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QWidget, QFormLayout, QLineEdit  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.models import RecipientAddress, ParsedAddress
@@ -26,6 +27,10 @@ class AddressForm(QWidget):
         "state": "state_input",
         "zipcode": "zipcode_input",
     }
+
+    # Emitted when the whole address is cleared or replaced by a looked-up
+    # one (not on typing in a field), i.e. the volunteer moved to a new package.
+    address_replaced = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -78,6 +83,7 @@ class AddressForm(QWidget):
         self.city_input.clear()
         self.state_input.clear()
         self.zipcode_input.clear()
+        self.address_replaced.emit()
 
     def get_address(self) -> RecipientAddress:
         """Get the address data as a RecipientAddress model."""
@@ -102,6 +108,7 @@ class AddressForm(QWidget):
             if key in data_dict:
                 widget = getattr(self, widget_name)
                 widget.setText(data_dict[key])
+        self.address_replaced.emit()
 
     def merge_address(self, data: Union[dict, ParsedAddress]):
         """Populate only non-empty parsed values without clearing existing fields."""
@@ -115,6 +122,7 @@ class AddressForm(QWidget):
             if value:
                 widget = getattr(self, widget_name)
                 widget.setText(value)
+        self.address_replaced.emit()
 
     def validate_required(self) -> Optional[str]:
         """Validate required fields and return error message if any."""

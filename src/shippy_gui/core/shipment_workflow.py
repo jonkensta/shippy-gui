@@ -20,6 +20,7 @@ from shippy_gui.core.constants import (
 )
 from shippy_gui.core.misc import grab_png_from_url
 from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
+from shippy_gui.core.rates import RateSummary, summarize_rates
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.printing.printer_manager import print_image
 
@@ -59,6 +60,8 @@ class ShipmentWorkflowResult:  # pylint: disable=too-many-instance-attributes
     identity: Optional[label_journal.LabelIdentity] = None
     # The journal record made when postage was bought (None if not journaled).
     label_record: Optional[Any] = None
+    # The quoted rates compared with the one bought (None if unavailable).
+    rate_summary: Optional[RateSummary] = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,8 @@ class ShipmentWorkflowInput:
     to_address: RecipientAddress
     weight_lbs: int
     logo_path: Optional[str] = None
+    # The volunteer said the box is at most one cubic foot (12x12x12).
+    small_box: bool = False
 
 
 class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
@@ -115,8 +120,14 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
 
             progress("Purchasing postage...")
             weight_oz = workflow_input.weight_lbs * OUNCES_PER_POUND
-            shipment = self.service.buy_shipment(from_addr.id, to_addr.id, weight_oz)
+            shipment = self.service.buy_shipment(
+                from_addr.id,
+                to_addr.id,
+                weight_oz,
+                small_box=workflow_input.small_box,
+            )
             record = label_journal.record_purchase(identity, shipment)
+            rate_summary = self._summarize_rates(shipment, workflow_input, warning)
 
             progress("Downloading label...")
             label_url = shipment.postage_label.label_url
@@ -134,6 +145,7 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
                 image=image,
                 identity=identity,
                 label_record=record,
+                rate_summary=rate_summary,
             )
 
         except easypost.errors.ApiError as error:
@@ -153,6 +165,29 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
             f"Label could not be prepared after buying postage: {message}",
             on_progress=progress,
         )
+
+    @staticmethod
+    def _summarize_rates(
+        shipment: Any,
+        workflow_input: ShipmentWorkflowInput,
+        warning: WarningCallback,
+    ) -> Optional[RateSummary]:
+        """Describe the quoted rates; never raises (postage is already bought)."""
+        try:
+            rate_summary = summarize_rates(shipment)
+            if rate_summary is not None:
+                logger.info(
+                    "Rates (%s lb, %s box): %s",
+                    workflow_input.weight_lbs,
+                    "12x12x12" if workflow_input.small_box else "large",
+                    rate_summary.text,
+                )
+                if rate_summary.library_mail_missing:
+                    warning(rate_summary.text)
+            return rate_summary
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.exception("Could not summarize the quoted rates")
+            return None
 
     def print_prepared_label(
         self,

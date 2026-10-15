@@ -4,6 +4,7 @@ import logging
 import threading
 from typing import Callable, Optional
 from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+    QCheckBox,
     QWidget,
     QFormLayout,
     QHBoxLayout,
@@ -19,6 +20,10 @@ from shippy_gui.core.constants import (
     DEFAULT_WEIGHT_LBS,
     PRINTER_POLL_FOUND_MS,
     PRINTER_POLL_MS,
+    SMALL_BOX_HEIGHT_IN,
+    SMALL_BOX_LENGTH_IN,
+    SMALL_BOX_MIN_WEIGHT_LBS,
+    SMALL_BOX_WIDTH_IN,
     STATUS_COLORS,
     WEIGHT_MAX_LBS,
     WEIGHT_MIN_LBS,
@@ -29,6 +34,12 @@ from shippy_gui.printing.printer_manager import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SMALL_BOX = "×".join(
+    f"{side:g}"
+    for side in (SMALL_BOX_LENGTH_IN, SMALL_BOX_WIDTH_IN, SMALL_BOX_HEIGHT_IN)
+)
+_SMALL_BOX_LONGEST = max(SMALL_BOX_LENGTH_IN, SMALL_BOX_WIDTH_IN, SMALL_BOX_HEIGHT_IN)
 
 
 class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
@@ -48,6 +59,20 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
         "This list only shows USB label printers that are plugged in and turned on.\n"
         "It updates by itself a few seconds after you plug in or turn on a printer.\n"
         "If no printers appear, check that the printer is plugged in, turned on, and ready."
+    )
+    SMALL_BOX_TEXT = (
+        f"Box fits within {_SMALL_BOX} in "
+        f"(no side longer than {_SMALL_BOX_LONGEST:g} in)"
+    )
+    SMALL_BOX_TOOLTIP = (
+        f"Tick this only if the box fits within {_SMALL_BOX} inches:\n"
+        "measure each side; none may be longer than "
+        f"{_SMALL_BOX_LONGEST:g} inches.\n"
+        "USPS rounds each side UP to the next whole inch (12.5 counts as 13).\n"
+        "Small boxes can sometimes ship cheaper by Ground Advantage; the\n"
+        "program always buys the cheapest rate either way.\n"
+        "If you are not sure, leave it unticked: a box declared smaller than\n"
+        "it really is gets an extra charge from USPS later."
     )
     REFRESH_TOOLTIP = (
         "Click Refresh to scan again for USB label printers right away.\n"
@@ -99,6 +124,14 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
             f"Package weight in pounds ({WEIGHT_MIN_LBS}-{WEIGHT_MAX_LBS} lbs)"
         )
         layout.addRow("Weight:", self.weight_input)
+
+        # Only asked at SMALL_BOX_MIN_WEIGHT_LBS and up: lighter packages go
+        # Library Mail whatever the box size. Unticked is the safe default.
+        self.small_box_checkbox = QCheckBox(self.SMALL_BOX_TEXT)
+        self.small_box_checkbox.setToolTip(self.SMALL_BOX_TOOLTIP)
+        layout.addRow(self.small_box_checkbox)
+        self.weight_input.valueChanged.connect(self._update_small_box_visibility)
+        self._update_small_box_visibility()
 
         self.printer_combo = QComboBox()
         self.printer_combo.setToolTip(self.PRINTER_TOOLTIP)
@@ -251,6 +284,23 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
         return self.weight_input.value()
 
     @property
+    def small_box_applies(self) -> bool:
+        """Whether the box-size question is asked for the current weight."""
+        return self.weight_input.value() >= SMALL_BOX_MIN_WEIGHT_LBS
+
+    @property
+    def small_box(self) -> bool:
+        """The volunteer said the box is at most one cubic foot (12x12x12)."""
+        return self.small_box_applies and self.small_box_checkbox.isChecked()
+
+    def _update_small_box_visibility(self, *_args) -> None:
+        applies = self.small_box_applies
+        if not applies:
+            self.small_box_checkbox.setChecked(False)
+        self.small_box_checkbox.setVisible(applies)
+        self.small_box_checkbox.setEnabled(applies and self._controls_enabled)
+
+    @property
     def printer_name(self) -> str:
         """Get selected printer name ("" when no printer was found)."""
         printer = self.selected_printer
@@ -272,6 +322,7 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
     def _update_enabled_state(self):
         """Apply enabled state while respecting printer availability."""
         self.weight_input.setEnabled(self._controls_enabled)
+        self._update_small_box_visibility()
         self.printer_combo.setEnabled(self._controls_enabled and self._has_printers)
         self.refresh_button.setEnabled(self._controls_enabled)
         # Creating a label without a printer is allowed: the volunteer is asked
@@ -293,9 +344,15 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
         """Reset controls after successful shipment.
 
         Note: Weight is intentionally NOT reset since users often
-        ship multiple packages of the same weight in succession.
+        ship multiple packages of the same weight in succession. The box-size
+        answer IS reset, so it is never carried over to a different box.
         """
         # Weight is preserved between shipments
+        self.clear_small_box()
+
+    def clear_small_box(self) -> None:
+        """Untick the box-size answer (the safe default) for the next package."""
+        self.small_box_checkbox.setChecked(False)
 
     def validate(self) -> Optional[str]:
         """Validate controls and return error message if any.

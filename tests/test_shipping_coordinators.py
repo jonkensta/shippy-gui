@@ -23,6 +23,7 @@ from shippy_gui.core.shipment_workflow import (
     ShipmentWorkflowStatus,
 )
 from shippy_gui.core.label_journal import LabelIdentity
+from shippy_gui.core.rates import RateSummary
 from shippy_gui.printing.printer_manager import DialogPrintStatus
 from shippy_gui.shipping_coordinators import (
     AddressLookupCoordinator,
@@ -30,6 +31,7 @@ from shippy_gui.shipping_coordinators import (
     ShippingStatusPresenter,
 )
 from shippy_gui.widgets.address_form import AddressForm
+from shippy_gui.widgets.printer_gate import PrinterGateResult
 from shippy_gui.widgets.shipment_controls import ShipmentControls
 
 
@@ -191,6 +193,99 @@ class ShippingCoordinatorTests(unittest.TestCase):
         worker.finished.emit()
         self.assertIsNone(coordinator.worker)
         self.assertEqual(shipment_controls.set_enabled.call_args_list[-1].args, (True,))
+
+    def _flow_with_small_box_answer(
+        self,
+    ):
+        parent = QWidget()
+        search_input = QLineEdit()
+        address_form = Mock(spec=AddressForm)
+        address_form.validate_required.return_value = None
+        address_form.get_address.return_value = RecipientAddress(
+            name="Reader",
+            street1="123 Main St",
+            city="Austin",
+            state="TX",
+            zipcode="78701",
+        )
+        shipment_controls = Mock(spec=ShipmentControls)
+        shipment_controls.validate.return_value = None
+        shipment_controls.weight_lbs = 8
+        shipment_controls.small_box = True
+        shipment_controls.printer_name = "Alpha 20d1:7008"
+        status_label = QLabel()
+        presenter = ShippingStatusPresenter(status_label)
+        config = Config(
+            easypost=EasypostConfig(apikey="ep"),
+            googlemaps=GoogleMapsConfig(apikey="gm"),
+            return_address=ReturnAddressConfig(
+                name="IBP",
+                street1="456 Return Rd",
+                city="Austin",
+                state="TX",
+                zipcode="78702",
+            ),
+        )
+        shipment_service = Mock()
+        created_workers: list[FakeWorker] = []
+
+        def worker_factory(**kwargs):
+            worker = FakeWorker(**kwargs)
+            created_workers.append(worker)
+            return worker
+
+        coordinator = ShipmentFlowCoordinator(
+            parent_widget=parent,
+            address_search_input=search_input,
+            address_form=address_form,
+            shipment_controls=shipment_controls,
+            status_presenter=presenter,
+            get_config=lambda: config,
+            get_shipment_service=lambda: shipment_service,
+            get_logo_path=lambda: "/tmp/logo.jpg",
+            worker_factory=worker_factory,
+        )
+
+        coordinator.create_label()
+        return coordinator, created_workers[0], status_label
+
+    @patch(
+        "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.NoModifier,
+    )
+    def test_small_box_answer_reaches_worker_and_rates_shown(self, _modifiers):
+        _coordinator, worker, status_label = self._flow_with_small_box_answer()
+        self.assertIs(worker.kwargs["small_box"], True)
+
+        worker.rate_summary = RateSummary(
+            text="Library Mail $9.12 · Ground Advantage $8.40 → "
+            "bought Ground Advantage (cheapest)",
+            library_mail_missing=False,
+        )
+        worker.success.emit("Label printed")
+
+        self.assertEqual(
+            status_label.text(),
+            "Label printed\nLibrary Mail $9.12 · Ground Advantage $8.40 → "
+            "bought Ground Advantage (cheapest)",
+        )
+        self.assertIn(STATUS_COLORS["success"], status_label.styleSheet())
+
+    @patch(
+        "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.NoModifier,
+    )
+    def test_missing_library_mail_shows_warning_status(self, _modifiers):
+        _coordinator, worker, status_label = self._flow_with_small_box_answer()
+
+        worker.rate_summary = RateSummary(
+            text="WARNING: no Library Mail rate was quoted. Ground Advantage $8.40",
+            library_mail_missing=True,
+        )
+        worker.success.emit("Label printed")
+
+        self.assertIn("no Library Mail rate was quoted", status_label.text())
+        self.assertIn(STATUS_COLORS["warning"], status_label.styleSheet())
 
     @patch("shippy_gui.shipping_coordinators.QMessageBox.warning")
     @patch(
@@ -526,6 +621,115 @@ class ShippingCoordinatorTests(unittest.TestCase):
         coordinator._on_label_ready(object(), "Alpha 20d1:7008", shipment)
 
         self.assertEqual(self.journal.status_updates, [("TRACK123", "printed", None)])
+
+    # --- box answer and quoted rates are never carried to another package ---
+
+    _RATES = RateSummary(
+        text="Library Mail $9.12 · Ground Advantage $8.40 → "
+        "bought Ground Advantage (cheapest)",
+        library_mail_missing=False,
+    )
+
+    def test_new_or_cleared_address_clears_box_answer(self):
+        coordinator, _workers, _confirm, _label, controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        # pylint: disable=protected-access
+        coordinator._address_form.address_replaced.connect.assert_called_once_with(
+            controls.clear_small_box
+        )
+
+    @patch(
+        "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.NoModifier,
+    )
+    def test_duplicate_declined_clears_box_answer(self, _mock_modifiers):
+        self.journal.duplicates = [make_record()]
+        coordinator, _workers, _confirm, _label, controls, _done = (
+            self._guarded_coordinator(answer=False)
+        )
+
+        with self.assertLogs("shippy_gui.shipping_coordinators", "WARNING"):
+            coordinator.create_label()
+
+        controls.clear_small_box.assert_called_once_with()
+
+    @patch(
+        "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.NoModifier,
+    )
+    def test_printer_gate_cancel_clears_box_answer(self, _mock_modifiers):
+        coordinator, workers, _confirm, _label, controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        # pylint: disable=protected-access
+        coordinator._confirm_printer = Mock(return_value=PrinterGateResult.CANCELED)
+
+        coordinator.create_label()
+
+        self.assertEqual(workers, [])
+        controls.clear_small_box.assert_called_once_with()
+
+    @patch("shippy_gui.shipping_coordinators.QMessageBox.critical")
+    @patch(
+        "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.NoModifier,
+    )
+    def test_shipment_error_clears_box_answer(self, _mock_modifiers, _critical):
+        coordinator, workers, _confirm, _label, controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        coordinator.create_label()
+
+        workers[0].error.emit("Shipment creation failed: boom")
+
+        controls.clear_small_box.assert_called_once_with()
+
+    @patch(
+        "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.NoModifier,
+    )
+    def test_create_label_drops_stale_rate_summary(self, _mock_modifiers):
+        coordinator, workers, _confirm, status_label, _controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        coordinator._rate_summary = self._RATES  # pylint: disable=protected-access
+
+        coordinator.create_label()
+        workers[0].success.emit("Label printed")
+
+        self.assertEqual(status_label.text(), "Label printed")
+
+    @patch("shippy_gui.shipping_coordinators.QMessageBox.warning")
+    def test_check_printer_warning_keeps_rates_visible(self, _warning):
+        coordinator, _workers, _confirm, status_label, _controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        coordinator.worker = Mock(rate_summary=self._RATES)
+
+        # pylint: disable=protected-access
+        coordinator._on_shipment_success_with_warning("Check the printer")
+
+        self.assertEqual(status_label.text(), f"Check the printer\n{self._RATES.text}")
+        self.assertIn(STATUS_COLORS["warning"], status_label.styleSheet())
+
+    @patch("shippy_gui.shipping_coordinators.show_label_queued")
+    def test_queued_label_keeps_rates_visible(self, _show_queued):
+        coordinator, _workers, _confirm, status_label, _controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        coordinator.worker = Mock(rate_summary=self._RATES)
+        shipment = Mock(id="shp_1", tracking_code="TRACK1")
+        result = ShipmentWorkflowResult(
+            status=ShipmentWorkflowStatus.SUCCESS,
+            message="The label did NOT print: saved",
+            shipment=shipment,
+        )
+
+        coordinator._on_label_saved(result)  # pylint: disable=protected-access
+
+        self.assertIn("Label QUEUED", status_label.text())
+        self.assertTrue(status_label.text().endswith(self._RATES.text))
 
 
 if __name__ == "__main__":

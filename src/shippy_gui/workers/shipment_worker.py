@@ -43,6 +43,7 @@ class ShipmentWorker(
         printer_name: str,
         logo_path: Optional[str] = None,
         use_dialog: bool = False,
+        small_box: bool = False,
     ):
         """Initialize the shipment worker.
 
@@ -54,6 +55,7 @@ class ShipmentWorker(
             printer_name: Name of printer to use
             logo_path: Optional path to logo image to overlay
             use_dialog: Whether to use system print dialog (default: False)
+            small_box: Box is at most one cubic foot (declared as 12x12x12)
         """
         super().__init__()
         self.workflow = ShipmentWorkflow(shipment_service)
@@ -63,7 +65,10 @@ class ShipmentWorker(
         self.printer_name = printer_name
         self.logo_path = logo_path
         self.use_dialog = use_dialog
+        self.small_box = small_box
         self.shipment = None
+        # Quoted rates vs the one bought, for the final status line.
+        self.rate_summary = None
 
     def run(self):
         """Execute the shipment workflow, reporting any unexpected crash."""
@@ -90,6 +95,7 @@ class ShipmentWorker(
                 to_address=self.to_address,
                 weight_lbs=self.weight_lbs,
                 logo_path=self.logo_path,
+                small_box=self.small_box,
             ),
             on_progress=self.progress.emit,
             on_warning=self.warning.emit,
@@ -100,6 +106,7 @@ class ShipmentWorker(
             return
 
         self.shipment = prepared_result.shipment
+        self.rate_summary = prepared_result.rate_summary
         if self.use_dialog:
             self.label_ready.emit(
                 prepared_result.image,

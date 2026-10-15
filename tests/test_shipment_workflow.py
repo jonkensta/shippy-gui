@@ -71,6 +71,103 @@ class ShipmentWorkflowTests(unittest.TestCase):
         self.assertIn("Purchasing postage...", progress)
         self.assertEqual(warnings, [])
 
+    def _bought(self, rates, bought):
+        shipment = Mock(id="shp_rates")
+        shipment.tracking_code = "TRACK_RATES"
+        shipment.postage_label.label_url = "https://example.com/label.png"
+        shipment.rates = rates
+        shipment.selected_rate = bought
+        return shipment
+
+    @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
+    def test_prepare_label_passes_small_box_and_summarizes_rates(self, mock_grab_png):
+        library = Mock(service="LibraryMail", rate="9.12", carrier="USPS")
+        ground = Mock(service="GroundAdvantage", rate="8.40", carrier="USPS")
+        self.service.create_address.side_effect = [Mock(id="f"), Mock(id="t")]
+        self.service.buy_shipment.return_value = self._bought([library, ground], ground)
+        mock_grab_png.return_value = Image.new("RGB", (10, 10), "white")
+        warnings = []
+
+        result = self.workflow.prepare_label(
+            ShipmentWorkflowInput(
+                from_address=self.from_address,
+                to_address=self.to_address,
+                weight_lbs=8,
+                small_box=True,
+            ),
+            on_warning=warnings.append,
+        )
+
+        self.service.buy_shipment.assert_called_once_with("f", "t", 128, small_box=True)
+        self.assertEqual(
+            result.rate_summary.text,
+            "Library Mail $9.12 · Ground Advantage $8.40 → "
+            "bought Ground Advantage (cheapest)",
+        )
+        self.assertEqual(warnings, [])
+
+    @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
+    def test_prepare_label_defaults_to_large_box(self, mock_grab_png):
+        self.service.create_address.side_effect = [Mock(id="f"), Mock(id="t")]
+        self.service.buy_shipment.return_value = self._bought([], None)
+        mock_grab_png.return_value = Image.new("RGB", (10, 10), "white")
+
+        self.workflow.prepare_label(
+            ShipmentWorkflowInput(
+                from_address=self.from_address,
+                to_address=self.to_address,
+                weight_lbs=8,
+            )
+        )
+
+        self.service.buy_shipment.assert_called_once_with(
+            "f", "t", 128, small_box=False
+        )
+
+    @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
+    def test_prepare_label_warns_when_library_mail_missing(self, mock_grab_png):
+        ground = Mock(service="GroundAdvantage", rate="8.40", carrier="USPS")
+        self.service.create_address.side_effect = [Mock(id="f"), Mock(id="t")]
+        self.service.buy_shipment.return_value = self._bought([ground], ground)
+        mock_grab_png.return_value = Image.new("RGB", (10, 10), "white")
+        warnings = []
+
+        result = self.workflow.prepare_label(
+            ShipmentWorkflowInput(
+                from_address=self.from_address,
+                to_address=self.to_address,
+                weight_lbs=8,
+            ),
+            on_warning=warnings.append,
+        )
+
+        self.assertTrue(result.rate_summary.library_mail_missing)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("no Library Mail rate was quoted", warnings[0])
+
+    @patch(
+        "shippy_gui.core.shipment_workflow.summarize_rates",
+        side_effect=RuntimeError("bad rate data"),
+    )
+    @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
+    def test_rate_summary_failure_never_refunds(self, mock_grab_png, _summarize):
+        self.service.create_address.side_effect = [Mock(id="f"), Mock(id="t")]
+        self.service.buy_shipment.return_value = self._bought([], None)
+        mock_grab_png.return_value = Image.new("RGB", (10, 10), "white")
+
+        with self.assertLogs("shippy_gui.core.shipment_workflow", "ERROR"):
+            result = self.workflow.prepare_label(
+                ShipmentWorkflowInput(
+                    from_address=self.from_address,
+                    to_address=self.to_address,
+                    weight_lbs=8,
+                )
+            )
+
+        self.assertEqual(result.status, ShipmentWorkflowStatus.READY)
+        self.assertIsNone(result.rate_summary)
+        self.service.refund_shipment.assert_not_called()
+
     @patch("shippy_gui.core.shipment_workflow.grab_png_from_url")
     def test_prepare_label_records_purchase_in_journal(self, mock_grab_png):
         shipment = Mock(id="shp_123")
