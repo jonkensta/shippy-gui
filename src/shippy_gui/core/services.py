@@ -70,6 +70,10 @@ class ShipmentService:
         configured, larger dimensions are declared.
         """
         if small_box:
+            # Any qualifying box is declared as the 12 in cube, the top USPS
+            # cubic tier (1,728 cu in). That never understates postage, but a
+            # much smaller box could fall in a cheaper cubic tier that this
+            # misses. Known and deferred until real dimensions or a box picker.
             problem = small_box_problem(
                 SMALL_BOX_LENGTH_IN, SMALL_BOX_WIDTH_IN, SMALL_BOX_HEIGHT_IN
             )

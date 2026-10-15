@@ -636,8 +636,60 @@ class ShippingCoordinatorTests(unittest.TestCase):
         )
         # pylint: disable=protected-access
         coordinator._address_form.recipient_changed.connect.assert_called_once_with(
-            controls.clear_small_box
+            coordinator._on_recipient_changed
         )
+
+        controls.clear_small_box.return_value = False
+        coordinator._on_recipient_changed()
+
+        controls.clear_small_box.assert_called_once_with()
+
+    def test_clearing_a_ticked_box_on_recipient_change_warns(self):
+        coordinator, _workers, _confirm, status_label, controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        controls.clear_small_box.return_value = True
+
+        coordinator._on_recipient_changed()  # pylint: disable=protected-access
+
+        self.assertEqual(
+            status_label.text(), ShipmentFlowCoordinator.BOX_ANSWER_CLEARED_TEXT
+        )
+        self.assertIn(STATUS_COLORS["warning"], status_label.styleSheet())
+
+    def test_recipient_change_with_unticked_box_says_nothing(self):
+        coordinator, _workers, _confirm, status_label, controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        status_label.setText("Address loaded successfully")
+        controls.clear_small_box.return_value = False
+
+        coordinator._on_recipient_changed()  # pylint: disable=protected-access
+
+        self.assertEqual(status_label.text(), "Address loaded successfully")
+
+    def test_success_with_real_widgets_shows_no_cleared_notice(self):
+        """A label's own form clearing must not report a cleared box answer."""
+        coordinator, _workers, _confirm, status_label, _controls, _done = (
+            self._guarded_coordinator(answer=True)
+        )
+        form = AddressForm()
+        with patch(
+            "shippy_gui.widgets.shipment_controls.get_available_printers",
+            return_value=[],
+        ):
+            controls = ShipmentControls(default_weight=8)
+        controls.small_box_checkbox.setChecked(True)
+        # pylint: disable=protected-access
+        coordinator._address_form = form
+        coordinator._shipment_controls = controls
+        form.recipient_changed.connect(coordinator._on_recipient_changed)
+        coordinator.worker = Mock(rate_summary=None)
+
+        coordinator._on_shipment_success("Label printed")
+
+        self.assertEqual(status_label.text(), "Label printed")
+        self.assertFalse(controls.small_box)
 
     @patch(
         "shippy_gui.shipping_coordinators.QApplication.keyboardModifiers",

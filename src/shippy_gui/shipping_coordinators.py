@@ -184,9 +184,17 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         # The summary shown by the last success, re-shown by follow-up warnings.
         self._shown_rate_summary: Optional[RateSummary] = None
         # Any change of recipient means another package: forget the box answer.
-        self._address_form.recipient_changed.connect(
-            self._shipment_controls.clear_small_box
-        )
+        self._address_form.recipient_changed.connect(self._on_recipient_changed)
+
+    BOX_ANSWER_CLEARED_TEXT = (
+        "Box size answer cleared because the address changed - tick it again "
+        "if the box still qualifies"
+    )
+
+    def _on_recipient_changed(self) -> None:
+        """Forget the box answer for a different recipient, saying so if it was ticked."""
+        if self._shipment_controls.clear_small_box() is True:
+            self._status_presenter.set_status(self.BOX_ANSWER_CLEARED_TEXT, "warning")
 
     def create_label(self) -> None:
         """Create and print a shipping label."""
@@ -403,8 +411,10 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         if self._shown_rate_summary and self._shown_rate_summary.library_mail_missing:
             status_type = "warning"
         self._status_presenter.set_status(self._with_rates(message), status_type)
-        self._address_form.clear()
+        # Reset the controls (unticking the box) before clearing the form, so
+        # the form's recipient_changed does not report a cleared box answer.
         self._shipment_controls.reset()
+        self._address_form.clear()
         self._address_search_input.setFocus()
 
     def _on_shipment_success_with_warning(self, message: str) -> None:

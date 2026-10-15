@@ -345,9 +345,14 @@ class ShipmentControls(QWidget):  # pylint: disable=too-many-instance-attributes
         # Weight is preserved between shipments
         self.clear_small_box()
 
-    def clear_small_box(self) -> None:
-        """Untick the box-size answer (the safe default) for the next package."""
+    def clear_small_box(self) -> bool:
+        """Untick the box-size answer (the safe default) for the next package.
+
+        Returns True if it was ticked, so callers can tell the volunteer.
+        """
+        was_ticked = self.small_box_checkbox.isChecked()
         self.small_box_checkbox.setChecked(False)
+        return was_ticked
 
     def validate(self) -> Optional[str]:
         """Validate controls and return error message if any.

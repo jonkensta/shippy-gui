@@ -344,9 +344,9 @@ class SmallBoxQuestionTests(unittest.TestCase):
         controls = ShipmentControls(default_weight=8)
         controls.small_box_checkbox.setChecked(True)
 
-        controls.clear_small_box()
-
+        self.assertTrue(controls.clear_small_box())
         self.assertFalse(controls.small_box)
+        self.assertFalse(controls.clear_small_box())  # already unticked
 
 
 if __name__ == "__main__":
