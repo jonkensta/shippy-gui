@@ -32,6 +32,7 @@ from shippy_gui.printing.printer_manager import (
 from shippy_gui.widgets.address_form import AddressForm
 from shippy_gui.widgets.autocomplete import GoogleMapsCompleter
 from shippy_gui.widgets.label_queue import confirm_duplicate_label, show_label_queued
+from shippy_gui.widgets.printer_gate import PrinterGateResult, wait_for_printer
 from shippy_gui.widgets.shipment_controls import ShipmentControls
 from shippy_gui.workers.shipment_worker import ShipmentWorker
 
@@ -158,6 +159,9 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             [QWidget, Sequence[Any]], bool
         ] = confirm_duplicate_label,
         on_shipment_done: Optional[Callable[[], None]] = None,
+        confirm_printer: Callable[
+            [QWidget, ShipmentControls], PrinterGateResult
+        ] = wait_for_printer,
     ):
         self._parent_widget = parent_widget
         self._address_search_input = address_search_input
@@ -171,6 +175,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._find_duplicates = find_duplicates
         self._confirm_duplicate = confirm_duplicate
         self._on_shipment_done = on_shipment_done or (lambda: None)
+        self._confirm_printer = confirm_printer
         self.worker: Optional[ShipmentWorker] = None
 
     def create_label(self) -> None:
@@ -197,6 +202,9 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
 
         to_address = self._address_form.get_address()
         if not self._confirm_not_duplicate(to_address):
+            return
+        # Shift+Click picks the printer in the system dialog, so no USB check.
+        if not use_dialog and not self._confirm_printer_ready():
             return
 
         self._shipment_controls.set_enabled(False)
@@ -255,6 +263,27 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
                 "warning",
             )
         return create
+
+    def _confirm_printer_ready(self) -> bool:
+        """Stop before buying postage when no label printer is plugged in.
+
+        Returns True to go ahead: a printer was found (now or while waiting),
+        or the volunteer chose to continue anyway, in which case the selected
+        printer is empty and the label is saved for the label watcher.
+        """
+        choice = self._confirm_printer(self._parent_widget, self._shipment_controls)
+        if choice is PrinterGateResult.CANCELED:
+            logger.info("No label printer detected: volunteer canceled")
+            self._status_presenter.set_status(
+                "Label NOT created: no label printer detected", "warning"
+            )
+            return False
+        if choice is PrinterGateResult.CONTINUE_ANYWAY:
+            logger.warning(
+                "No label printer detected: volunteer chose to continue anyway "
+                "(the label will be saved to print later)"
+            )
+        return True
 
     def _on_label_ready(
         self,

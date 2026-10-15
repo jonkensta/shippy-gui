@@ -244,6 +244,30 @@ class ShipmentWorkflowTests(unittest.TestCase):
         self.assertIn(str(watch_dir / "to-print"), result.message)
         self.assertIn("TRACK123", backend.print_image.call_args.kwargs["job_name"])
 
+    def test_print_prepared_label_without_printer_saves_label_without_printing(self):
+        prepared_result = self._prepared()
+        backend = Mock(spec=ibp_printing.PrinterBackend)
+        ibp_printing.set_backend(backend)
+        self.addCleanup(ibp_printing.set_backend, None)
+        saved = Path("/tmp/to-print/TRACK123.png")
+
+        with patch(
+            "shippy_gui.core.shipment_workflow.ibp_printing.save_for_retry",
+            return_value=saved,
+        ) as mock_save:
+            result = self.workflow.print_prepared_label(prepared_result, "")
+
+        backend.print_image.assert_not_called()
+        mock_save.assert_called_once_with(
+            prepared_result.image, name="TRACK123", meta=ANY
+        )
+        self.assertEqual(result.status, ShipmentWorkflowStatus.SUCCESS)
+        self.assertFalse(result.refund_requested)
+        self.service.refund_shipment.assert_not_called()
+        self.assertEqual(result.saved_label_path, saved)
+        self.assertIn("no label printer was plugged in", result.message)
+        self.assertEqual(self.journal.statuses(), ["queued"])
+
     def test_print_prepared_label_refunds_when_label_cannot_be_saved(self):
         prepared_result = self._prepared()
         self._failing_backend()

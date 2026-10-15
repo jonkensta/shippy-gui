@@ -25,6 +25,9 @@ from shippy_gui.printing.printer_manager import print_image
 
 logger = logging.getLogger(__name__)
 
+# PrintError text when the volunteer continued without a label printer.
+NO_PRINTER_ERROR = "no label printer was plugged in when the label was created"
+
 ProgressCallback = Callable[[str], None]
 WarningCallback = Callable[[str], None]
 
@@ -175,6 +178,17 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
             "identity": prepared_result.identity,
             "label_record": prepared_result.label_record,
         }
+
+        if not printer_name:
+            # The volunteer chose to continue without a label printer: nothing
+            # can be sent anywhere, so queue the label for the label watcher.
+            return self.save_unprinted_label(
+                shipment,
+                image,
+                ibp_printing.PrintError(NO_PRINTER_ERROR),
+                on_progress=progress,
+                **journal,
+            )
 
         try:
             progress("Printing label...")

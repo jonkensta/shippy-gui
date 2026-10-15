@@ -154,6 +154,8 @@ class ShippingTab(QWidget):
         default_weight = self.config.get_default_weight() if self.config else 1
         self.shipment_controls = ShipmentControls(default_weight=default_weight)
         layout.addWidget(self.shipment_controls)
+        # The printer status line updates itself as printers come and go.
+        self.shipment_controls.start_printer_polling()
 
         # Status Label
         self.status_label = QLabel("Ready")

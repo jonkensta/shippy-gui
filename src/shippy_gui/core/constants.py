@@ -17,6 +17,10 @@ PRINT_JOB_NAME = "Shipping Label"
 # as an error rather than a timeout.
 PRINT_TRACK_TIMEOUT_S = 15.0
 
+# How often the printer status line re-checks for a usable label printer.
+# Discovery only lists devices and never opens the printer, so this is cheap.
+PRINTER_POLL_MS = 2_000
+
 
 # ============================================================================
 # Label Constants
