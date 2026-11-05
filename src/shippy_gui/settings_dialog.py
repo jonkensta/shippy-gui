@@ -74,31 +74,16 @@ class SettingsDialog(
         ibp_group = QGroupBox("IBP API")
         ibp_layout = QFormLayout()
         self.ibp_url_input = QLineEdit()
-        self.ibp_url_input.setPlaceholderText("https://example.com")
+        self.ibp_url_input.setPlaceholderText("http://192.168.1.156/api")
+        self.ibp_url_input.setToolTip(
+            "The IBP server; the return address on labels comes from it"
+        )
         self.ibp_key_input = QLineEdit()
         self.ibp_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         ibp_layout.addRow("URL:", self.ibp_url_input)
         ibp_layout.addRow("API Key:", self.ibp_key_input)
         ibp_group.setLayout(ibp_layout)
         main_layout.addWidget(ibp_group)
-
-        # Return Address section
-        return_addr_group = QGroupBox("Return Address")
-        return_addr_layout = QFormLayout()
-        self.return_name_input = QLineEdit()
-        self.return_street1_input = QLineEdit()
-        self.return_street2_input = QLineEdit()
-        self.return_city_input = QLineEdit()
-        self.return_state_input = QLineEdit()
-        self.return_zipcode_input = QLineEdit()
-        return_addr_layout.addRow("Name:", self.return_name_input)
-        return_addr_layout.addRow("Street 1:", self.return_street1_input)
-        return_addr_layout.addRow("Street 2:", self.return_street2_input)
-        return_addr_layout.addRow("City:", self.return_city_input)
-        return_addr_layout.addRow("State:", self.return_state_input)
-        return_addr_layout.addRow("ZIP Code:", self.return_zipcode_input)
-        return_addr_group.setLayout(return_addr_layout)
-        main_layout.addWidget(return_addr_group)
 
         # UI Settings section
         ui_group = QGroupBox("User Interface")
@@ -155,15 +140,8 @@ class SettingsDialog(
         # Populate form fields
         self.easypost_key_input.setText(config.easypost.apikey)
         self.gmaps_key_input.setText(config.googlemaps.apikey)
-        if config.ibp:
-            self.ibp_url_input.setText(str(config.ibp.url) if config.ibp.url else "")
-            self.ibp_key_input.setText(config.ibp.apikey or "")
-        self.return_name_input.setText(config.return_address.name)
-        self.return_street1_input.setText(config.return_address.street1)
-        self.return_street2_input.setText(config.return_address.street2 or "")
-        self.return_city_input.setText(config.return_address.city)
-        self.return_state_input.setText(config.return_address.state)
-        self.return_zipcode_input.setText(config.return_address.zipcode)
+        self.ibp_url_input.setText(str(config.ibp.url))
+        self.ibp_key_input.setText(config.ibp.apikey or "")
         self.font_size_input.setValue(config.get_font_size())
         self.default_weight_input.setValue(config.get_default_weight())
         self.log_file_input.setText(config.ui.log_file if config.ui else "")
@@ -182,14 +160,6 @@ class SettingsDialog(
             },
             "googlemaps": {
                 "apikey": self.gmaps_key_input.text().strip(),
-            },
-            "return_address": {
-                "name": self.return_name_input.text().strip(),
-                "street1": self.return_street1_input.text().strip(),
-                "street2": self.return_street2_input.text().strip(),
-                "city": self.return_city_input.text().strip(),
-                "state": self.return_state_input.text().strip(),
-                "zipcode": self.return_zipcode_input.text().strip(),
             },
             "ibp": {
                 "url": self.ibp_url_input.text().strip(),

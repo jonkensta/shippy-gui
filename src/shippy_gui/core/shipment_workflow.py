@@ -102,7 +102,8 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
                 self.service.verify_address(from_addr.id)
             except easypost.errors.InvalidRequestError:
                 warning(
-                    "Failed to verify return address. Please check your config.ini."
+                    "Failed to verify return address. Please check the return address "
+                    "in the IBP server's shipping settings."
                 )
 
             progress("Building recipient address...")

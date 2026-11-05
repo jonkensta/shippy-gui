@@ -16,7 +16,7 @@ from shippy_gui.core.models import (
     GoogleMapsConfig,
     ParsedAddress,
     RecipientAddress,
-    ReturnAddressConfig,
+    IbpConfig,
 )
 from shippy_gui.core.shipment_workflow import (
     ShipmentWorkflowResult,
@@ -149,13 +149,7 @@ class ShippingCoordinatorTests(unittest.TestCase):
         config = Config(
             easypost=EasypostConfig(apikey="ep"),
             googlemaps=GoogleMapsConfig(apikey="gm"),
-            return_address=ReturnAddressConfig(
-                name="IBP",
-                street1="456 Return Rd",
-                city="Austin",
-                state="TX",
-                zipcode="78702",
-            ),
+            ibp=IbpConfig(url="http://ibp.test/api"),
         )
         shipment_service = Mock()
         created_workers: list[FakeWorker] = []
@@ -183,6 +177,7 @@ class ShippingCoordinatorTests(unittest.TestCase):
         worker = created_workers[0]
         self.assertTrue(worker.started)
         self.assertEqual(worker.kwargs["shipment_service"], shipment_service)
+        self.assertEqual(worker.kwargs["ibp_url"], "http://ibp.test/api")
         shipment_controls.set_enabled.assert_called_once_with(False)
 
         worker.success.emit("Label printed")
@@ -218,13 +213,7 @@ class ShippingCoordinatorTests(unittest.TestCase):
         config = Config(
             easypost=EasypostConfig(apikey="ep"),
             googlemaps=GoogleMapsConfig(apikey="gm"),
-            return_address=ReturnAddressConfig(
-                name="IBP",
-                street1="456 Return Rd",
-                city="Austin",
-                state="TX",
-                zipcode="78702",
-            ),
+            ibp=IbpConfig(url="http://ibp.test/api"),
         )
         shipment_service = Mock()
         created_workers: list[FakeWorker] = []

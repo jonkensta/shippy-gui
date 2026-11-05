@@ -18,13 +18,7 @@ from shippy_gui.core.models import Config
 BASE_CONFIG_DICT = {
     "easypost": {"apikey": "ep_test"},
     "googlemaps": {"apikey": "gmaps_test"},
-    "return_address": {
-        "name": "Inside Books Project",
-        "street1": "PO Box 1",
-        "city": "Austin",
-        "state": "TX",
-        "zipcode": "78703",
-    },
+    "ibp": {"url": "http://ibp.test/api"},
 }
 
 

@@ -120,9 +120,12 @@ class ParcelConfig(BaseModel):
 
 
 class IbpConfig(BaseModel):
-    """Model for IBP API configuration."""
+    """Model for IBP API configuration.
 
-    url: Optional[AnyHttpUrl] = None
+    The return address on every label comes from this server.
+    """
+
+    url: AnyHttpUrl
     apikey: Optional[str] = None
 
 
@@ -160,8 +163,7 @@ class Config(BaseModel):
     ui: Optional[UiConfig] = None
     easypost: EasypostConfig
     googlemaps: GoogleMapsConfig
-    return_address: ReturnAddressConfig
-    ibp: Optional[IbpConfig] = None
+    ibp: IbpConfig
     parcel: ParcelConfig = ParcelConfig()
 
     def get_font_size(self) -> int:

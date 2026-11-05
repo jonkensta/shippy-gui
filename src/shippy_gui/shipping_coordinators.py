@@ -257,7 +257,7 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
 
         self.worker = self._worker_factory(
             shipment_service=shipment_service,
-            from_address=config.return_address,
+            ibp_url=str(config.ibp.url),
             to_address=to_address,
             weight_lbs=self._shipment_controls.weight_lbs,
             printer_name=self._shipment_controls.printer_name,

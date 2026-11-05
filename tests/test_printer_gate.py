@@ -14,7 +14,7 @@ from shippy_gui.core.models import (
     EasypostConfig,
     GoogleMapsConfig,
     RecipientAddress,
-    ReturnAddressConfig,
+    IbpConfig,
 )
 from shippy_gui.printing.models import PrinterInfo
 from shippy_gui.shipping_coordinators import (
@@ -139,13 +139,7 @@ class ShipmentFlowPrinterGateTests(unittest.TestCase):
         config = Config(
             easypost=EasypostConfig(apikey="ep"),
             googlemaps=GoogleMapsConfig(apikey="gm"),
-            return_address=ReturnAddressConfig(
-                name="IBP",
-                street1="456 Return Rd",
-                city="Austin",
-                state="TX",
-                zipcode="78702",
-            ),
+            ibp=IbpConfig(url="http://ibp.test/api"),
         )
 
         def worker_factory(**kwargs):

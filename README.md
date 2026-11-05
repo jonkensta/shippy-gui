@@ -17,7 +17,7 @@ Inside Books Project is an Austin-based community service volunteer organization
 - **EasyPost API Integration**: Utilizes the EasyPost API for purchasing postage and generating Library Mail shipping labels
 - **Label Printing**: Generates and prints postage labels with IBP logo overlay when available
 - **Cross-Platform Printing**: Supports Windows (win32print) and Linux (CUPS) printing via the shared [ibp-printing](https://github.com/jonkensta/ibp-printing) library
-- **Settings Dialog**: GUI for configuring API keys and return address
+- **Settings Dialog**: GUI for configuring the IBP server URL and API keys
 - **Error Handling**: Labels that cannot reach a printer are saved to a print queue folder for the IBP label watcher (postage kept); automatic refund if the label itself cannot be downloaded; comprehensive error messages
 - **Async Operations**: Non-blocking UI using QThread for network operations
 - **Configurable Font Size**: Adjust UI font size for accessibility
@@ -80,7 +80,7 @@ uvx --from git+https://github.com/jonkensta/shippy-gui.git@main shippy-gui
 
 ## Configuration
 
-The application requires a configuration file for the EasyPost API, Google Maps API, and return address information.
+The application requires a configuration file for the IBP server, the EasyPost API and the Google Maps API. The return address on every label comes from the IBP server's shipping settings (`GET /shipping-settings`), the same one `shippy` uses, and is read each time a label is bought; if the server can't be reached, no postage is bought.
 
 ### Initial Setup
 
@@ -90,7 +90,7 @@ On first run, the application requires a `config.ini` file in the current workin
 
 1.  Copy `config.example.ini` to `config.ini` in your working directory.
     - Note: `config.example.ini` is included in the repo for development convenience and is also bundled inside the installed package for automatic bootstrap.
-2.  Populate it with your API keys and return address:
+2.  Populate it with the IBP server URL and your API keys:
 
     ```ini
     [ui]
@@ -101,16 +101,11 @@ On first run, the application requires a `config.ini` file in the current workin
     [easypost]
     apikey = your_easypost_api_key_here
 
+    [ibp]
+    url = http://192.168.1.156/api
+
     [googlemaps]
     apikey = your_google_maps_api_key_here
-
-    [return_address]
-    name = Inside Books Project
-    street1 = PO Box 301029
-    street2 =
-    city = Austin
-    state = Texas
-    zipcode = 78703
     ```
 
     - `ui.font_size`: UI font size in points (8-24)
@@ -118,7 +113,7 @@ On first run, the application requires a `config.ini` file in the current workin
     - `ui.default_weight`: Default package weight in pounds
     - `easypost.apikey`: Your EasyPost API key
     - `googlemaps.apikey`: Your Google Maps API key (for address autocomplete)
-    - `return_address.*`: Your return address information (sender address for labels)
+    - `ibp.url`: The IBP server's API base URL (source of the return address)
 
 ### Settings Dialog
 

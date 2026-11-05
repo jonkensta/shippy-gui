@@ -5,7 +5,8 @@ from typing import Optional
 
 from PySide6.QtCore import QThread, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
-from shippy_gui.core.models import RecipientAddress, ReturnAddressConfig
+from shippy_gui.core.ibp_server import IbpServerError, fetch_return_address
+from shippy_gui.core.models import RecipientAddress
 from shippy_gui.core.services import ShipmentService
 from shippy_gui.core.shipment_workflow import (
     ShipmentWorkflowInput,
@@ -37,7 +38,7 @@ class ShipmentWorker(
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         shipment_service: ShipmentService,
-        from_address: ReturnAddressConfig,
+        ibp_url: str,
         to_address: RecipientAddress,
         weight_lbs: int,
         printer_name: str,
@@ -49,7 +50,7 @@ class ShipmentWorker(
 
         Args:
             shipment_service: Shipment logic service
-            from_address: Return address model
+            ibp_url: IBP server base URL, read for the return address
             to_address: Recipient address model
             weight_lbs: Package weight in pounds
             printer_name: Name of printer to use
@@ -59,7 +60,7 @@ class ShipmentWorker(
         """
         super().__init__()
         self.workflow = ShipmentWorkflow(shipment_service)
-        self.from_address = from_address
+        self.ibp_url = ibp_url
         self.to_address = to_address
         self.weight_lbs = weight_lbs
         self.printer_name = printer_name
@@ -89,9 +90,21 @@ class ShipmentWorker(
             )
 
     def _run(self):
+        self.progress.emit("Getting return address from the IBP server...")
+        try:
+            from_address = fetch_return_address(self.ibp_url)
+        except IbpServerError as error:
+            logger.error("Return address lookup failed: %s", error)
+            self.error.emit(
+                f"Could not get the return address from the IBP server: {error}. "
+                "No postage was bought. Check that the IBP server is running "
+                "and the IBP URL in Settings, then try again."
+            )
+            return
+
         prepared_result = self.workflow.prepare_label(
             ShipmentWorkflowInput(
-                from_address=self.from_address,
+                from_address=from_address,
                 to_address=self.to_address,
                 weight_lbs=self.weight_lbs,
                 logo_path=self.logo_path,

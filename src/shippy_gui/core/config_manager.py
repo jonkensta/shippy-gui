@@ -114,19 +114,12 @@ class ConfigManager:
             }
             config_parser["easypost"] = {"apikey": config.easypost.apikey}
             config_parser["googlemaps"] = {"apikey": config.googlemaps.apikey}
-            config_parser["return_address"] = {
-                "name": config.return_address.name,
-                "street1": config.return_address.street1,
-                "street2": config.return_address.street2 or "",
-                "city": config.return_address.city,
-                "state": config.return_address.state,
-                "zipcode": config.return_address.zipcode,
+            config_parser["ibp"] = {
+                "url": str(config.ibp.url),
+                "apikey": config.ibp.apikey or "",
             }
-            if config.ibp is not None:
-                config_parser["ibp"] = {
-                    "url": str(config.ibp.url) if config.ibp.url else "",
-                    "apikey": config.ibp.apikey or "",
-                }
+            # The return address now comes from the IBP server.
+            config_parser.remove_section("return_address")
 
             with open(self._config_path, "w", encoding="utf-8") as f:
                 config_parser.write(f)
