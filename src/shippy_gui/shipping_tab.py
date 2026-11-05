@@ -199,6 +199,10 @@ class ShippingTab(QWidget):
         )
         self.shipment_controls.create_requested.connect(self.shipment_flow.create_label)
 
+    def shipment_in_progress(self) -> bool:
+        """Whether closing now would interrupt a shipment."""
+        return self.shipment_flow is not None and self.shipment_flow.is_busy()
+
     def wait_for_background_work(self) -> None:
         """Let in-flight threads finish before the tab goes away.
 

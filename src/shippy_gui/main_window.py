@@ -4,7 +4,7 @@ import os
 from typing import Optional
 
 from PySide6.QtGui import QAction  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
-from PySide6.QtWidgets import QApplication, QMainWindow, QStatusBar  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QStatusBar  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
 from shippy_gui.core.config import get_font_size_from_path
 from shippy_gui.core.font import apply_font_size
@@ -52,7 +52,20 @@ class MainWindow(QMainWindow):  # pylint: disable=too-few-public-methods
         self.pending_labels.start()
 
     def closeEvent(self, event):  # pylint: disable=invalid-name  # Qt override
-        """Wait for background work before tearing the window down."""
+        """Refuse to close mid-shipment; otherwise let background work finish.
+
+        Closing while a label is bought but not yet printed or refunded would
+        strand the postage (and the worker's final signals would be lost).
+        """
+        if self.shipping_tab.shipment_in_progress():
+            QMessageBox.warning(
+                self,
+                "Label in progress",
+                "A shipping label is being created. Wait for it to finish "
+                "before closing Shippy.",
+            )
+            event.ignore()
+            return
         self.shipping_tab.wait_for_background_work()
         super().closeEvent(event)
 

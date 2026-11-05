@@ -484,6 +484,10 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self.worker = None
         self._on_shipment_done()
 
+    def is_busy(self) -> bool:
+        """Whether a shipment is being bought, printed or refunded right now."""
+        return self.worker is not None and self.worker.isRunning()
+
     def wait_for_worker(self, timeout_ms: int = SHIPMENT_SHUTDOWN_WAIT_MS) -> bool:
         """Block until any in-flight shipment finishes.
 
