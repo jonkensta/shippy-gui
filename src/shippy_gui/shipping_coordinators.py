@@ -197,6 +197,9 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._on_shipment_done = on_shipment_done or (lambda: None)
         self._confirm_printer = confirm_printer
         self.worker: Optional[ShipmentWorker] = None
+        # True while a Shift+Click label is in the print dialog or being
+        # refunded/saved; the dialog's event loop can clear self.worker first.
+        self._handling_label = False
         # Quoted rates vs the one bought, kept for the Shift+Click print
         # dialog path, where the worker may finish before the label prints.
         self._rate_summary: Optional[RateSummary] = None
@@ -348,6 +351,22 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         a PrintError, refunding only if saving fails. Failed after printing
         started: warn, no refund, nothing saved.
         """
+        self._handling_label = True
+        try:
+            self._handle_dialog_label(image, printer_name, shipment, prepared)
+        finally:
+            self._handling_label = False
+        # The worker may have finished while the print dialog was open.
+        self._on_shipment_done()
+
+    def _handle_dialog_label(
+        self,
+        image,
+        printer_name: str,
+        shipment: Any,
+        prepared: Optional[ShipmentWorkflowResult],
+    ) -> None:
+        """Print through the dialog, then refund, save or report the outcome."""
         if prepared is not None:
             self._rate_summary = prepared.rate_summary
         result = print_image_with_dialog(
@@ -367,8 +386,6 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
             self._on_shipment_success_with_warning(
                 f"{dialog_uncertain_warning()} Tracking: {shipment.tracking_code}"
             )
-        # The worker may have finished while the print dialog was open.
-        self._on_shipment_done()
 
     def _save_dialog_label(
         self,
@@ -490,8 +507,10 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         Busy until the worker's ``finished`` slot clears it, not just while the
         thread runs: on Shift+Click the thread exits after emitting
         ``label_ready``, and the print dialog (or refund) still has to run.
+        The dialog's nested event loop can run ``finished`` before it closes,
+        so ``_handling_label`` covers the rest.
         """
-        return self.worker is not None
+        return self.worker is not None or self._handling_label
 
     def wait_for_worker(self, timeout_ms: int = SHIPMENT_SHUTDOWN_WAIT_MS) -> bool:
         """Block until any in-flight shipment finishes.

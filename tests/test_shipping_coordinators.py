@@ -909,11 +909,42 @@ class ShipmentBusyTests(unittest.TestCase):
 
     def test_busy_after_thread_exit_until_finished_slot_runs(self):
         coordinator = ShipmentFlowCoordinator.__new__(ShipmentFlowCoordinator)
+        coordinator._handling_label = False
         coordinator.worker = FakeWorker()  # thread already exited (isRunning False)
 
         self.assertTrue(coordinator.is_busy())
 
         coordinator.worker = None
+        self.assertFalse(coordinator.is_busy())
+
+    def test_busy_while_print_dialog_is_open_even_if_worker_cleared(self):
+        """The dialog's nested event loop may run the finished slot first."""
+        coordinator = ShipmentFlowCoordinator.__new__(ShipmentFlowCoordinator)
+        coordinator._handling_label = False
+        coordinator.worker = None
+        coordinator._on_shipment_done = Mock()
+        seen = []
+
+        def fake_handle(*_args):
+            seen.append(coordinator.is_busy())
+
+        coordinator._handle_dialog_label = fake_handle
+        coordinator._on_label_ready(object(), "BOB", Mock(), None)
+
+        self.assertEqual(seen, [True])
+        self.assertFalse(coordinator.is_busy())
+        coordinator._on_shipment_done.assert_called_once()
+
+    def test_not_busy_after_a_dialog_handler_error(self):
+        coordinator = ShipmentFlowCoordinator.__new__(ShipmentFlowCoordinator)
+        coordinator._handling_label = False
+        coordinator.worker = None
+        coordinator._on_shipment_done = Mock()
+        coordinator._handle_dialog_label = Mock(side_effect=RuntimeError("boom"))
+
+        with self.assertRaises(RuntimeError):
+            coordinator._on_label_ready(object(), "BOB", Mock(), None)
+
         self.assertFalse(coordinator.is_busy())
 
 
