@@ -31,6 +31,9 @@ from shippy_gui.widgets.autocomplete import (
 from shippy_gui.widgets.address_form import AddressForm
 from shippy_gui.widgets.shipment_controls import ShipmentControls
 
+# The bundled logo stamped on labels; assets/ sits inside the package.
+LOGO_PATH = Path(__file__).parent / "assets" / "logo.jpg"
+
 
 class ShippingTab(QWidget):
     """Tab for unified shipping with address lookup."""
@@ -121,9 +124,8 @@ class ShippingTab(QWidget):
 
     def _load_logo(self):
         """Load logo image if available."""
-        logo_path = Path(__file__).parent.parent / "assets" / "logo.jpg"
-        if logo_path.exists():
-            self.logo_path = str(logo_path)
+        if LOGO_PATH.exists():
+            self.logo_path = str(LOGO_PATH)
 
     def _init_ui(self):
         """Initialize the user interface."""

@@ -136,8 +136,8 @@ class ShipmentWorkflow:  # pylint: disable=too-few-public-methods
 
             if workflow_input.logo_path and os.path.exists(workflow_input.logo_path):
                 progress("Adding logo...")
-                logo = Image.open(workflow_input.logo_path)
-                image.paste(logo, (LOGO_PASTE_X, LOGO_PASTE_Y))
+                with Image.open(workflow_input.logo_path) as logo:
+                    image.paste(logo, (LOGO_PASTE_X, LOGO_PASTE_Y))
 
             return ShipmentWorkflowResult(
                 status=ShipmentWorkflowStatus.READY,
