@@ -46,7 +46,7 @@ def _load_required_config(config_path: str):
         initialize_config_file(config_path)
         _show_config_error(
             "A new config.ini was created in this folder.\n\n"
-            "Please fill in your API keys and return address."
+            "Please fill in the IBP server URL and your API keys."
         )
         if not _run_settings_dialog(config_path):
             sys.exit(1)

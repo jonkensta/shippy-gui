@@ -40,7 +40,7 @@ def fetch_return_address(
         )
     except requests.RequestException as error:
         raise IbpServerError(f"could not reach {url}: {error}") from error
-    except (ValueError, KeyError, TypeError) as error:
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
         # ValidationError is a ValueError; so is a body that isn't JSON.
         detail = (
             "the server's return address is incomplete"

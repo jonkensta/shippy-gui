@@ -72,6 +72,12 @@ class FetchReturnAddressTests(unittest.TestCase):
         with self.assertRaisesRegex(IbpServerError, "unexpected response"):
             fetch_return_address("http://ibp.test/api")
 
+    def test_null_return_address_raises(self, get):
+        get.return_value = response({"return_address": None})
+
+        with self.assertRaisesRegex(IbpServerError, "unexpected response"):
+            fetch_return_address("http://ibp.test/api")
+
 
 if __name__ == "__main__":
     unittest.main()
