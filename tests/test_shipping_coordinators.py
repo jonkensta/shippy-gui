@@ -904,5 +904,18 @@ class ShippingCoordinatorTests(unittest.TestCase):
         self.assertIn(STATUS_COLORS["success"], status_label.styleSheet())
 
 
+class ShipmentBusyTests(unittest.TestCase):
+    """Closing must wait until a bought label's last UI step is done."""
+
+    def test_busy_after_thread_exit_until_finished_slot_runs(self):
+        coordinator = ShipmentFlowCoordinator.__new__(ShipmentFlowCoordinator)
+        coordinator.worker = FakeWorker()  # thread already exited (isRunning False)
+
+        self.assertTrue(coordinator.is_busy())
+
+        coordinator.worker = None
+        self.assertFalse(coordinator.is_busy())
+
+
 if __name__ == "__main__":
     unittest.main()
