@@ -58,6 +58,12 @@
 - Use single-line commit messages with a clear tag such as `feat:`, `bugfix:`, `docs:`, `refactor:`, `test:`, or `chore:`.
 - Do not add `Co-authored-by:` trailers or similar AI-assistant attribution lines to commits.
 - Do not mix unrelated changes in one commit.
+- Merge feature branches straight into `main` with `git merge --no-ff`; no
+  pull requests and no review (one maintainer).
+- `main` and `deploy` are kept identical. The shipping laptops' desktop
+  shortcuts run `@deploy`, so release by fast-forwarding it to `main`
+  (`git push origin main:deploy`) after the change is tested; never commit to
+  `deploy` directly or let it diverge from `main`.
 
 ## Documentation Expectations
 
