@@ -13,6 +13,18 @@ from shippy_gui.core.models import AutocompletePrediction
 logger = logging.getLogger(__name__)
 
 
+# Lookups still running when their completer goes away (a settings save
+# replaces it) are parked here until they finish, so Qt never destroys a
+# running thread.
+_PARKED_WORKERS: set["GoogleMapsLookupWorker"] = set()
+
+
+def _park(worker: "GoogleMapsLookupWorker") -> None:
+    """Keep a running worker alive past its completer."""
+    _PARKED_WORKERS.add(worker)
+    worker.finished.connect(lambda: _PARKED_WORKERS.discard(worker))
+
+
 class GoogleMapsLookupWorker(QThread):  # pylint: disable=too-few-public-methods
     """Worker thread for Google Maps API calls."""
 
@@ -155,6 +167,10 @@ class GoogleMapsCompleter(
             if worker.isRunning():
                 worker.wait(timeout_ms)
         self._retire_finished_workers()
+        # Any lookup still hung past the wait outlives this completer.
+        for worker in list(self._active_workers):
+            self._active_workers.discard(worker)
+            _park(worker)
 
     def _on_results_ready(
         self,

@@ -71,6 +71,24 @@ class AutocompleteWorkerLifetimeTests(unittest.TestCase):
         self.assertEqual(completer._active_workers, set())
         self.assertEqual(completer.current_predictions, [])
 
+    def test_lookup_outliving_the_wait_is_parked_not_dropped(self):
+        """A hung lookup must survive its completer being replaced."""
+        from shippy_gui.widgets import autocomplete
+
+        completer = self._completer(lookup_delay=0.5)
+        completer.current_text = "123 Main"
+        completer._fetch_predictions()
+        worker = completer.current_worker
+        # Stale text, so the late result only fills the cache (popping up a
+        # completer that has no widget would crash the test process).
+        completer.current_text = "something else"
+
+        completer.wait_for_workers(timeout_ms=10)
+
+        self.assertEqual(completer._active_workers, set())
+        self.assertIn(worker, autocomplete._PARKED_WORKERS)
+        worker.wait()
+
 
 if __name__ == "__main__":
     unittest.main()
