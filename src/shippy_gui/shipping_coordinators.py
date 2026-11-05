@@ -485,8 +485,13 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
         self._on_shipment_done()
 
     def is_busy(self) -> bool:
-        """Whether a shipment is being bought, printed or refunded right now."""
-        return self.worker is not None and self.worker.isRunning()
+        """Whether a shipment is being bought, printed or refunded right now.
+
+        Busy until the worker's ``finished`` slot clears it, not just while the
+        thread runs: on Shift+Click the thread exits after emitting
+        ``label_ready``, and the print dialog (or refund) still has to run.
+        """
+        return self.worker is not None
 
     def wait_for_worker(self, timeout_ms: int = SHIPMENT_SHUTDOWN_WAIT_MS) -> bool:
         """Block until any in-flight shipment finishes.
