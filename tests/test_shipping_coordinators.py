@@ -67,6 +67,13 @@ class FakeWorker:
     def start(self):
         self.started = True
 
+    def deleteLater(self):  # pylint: disable=invalid-name  # Qt API
+        """Qt's deferred delete; nothing to free in the fake."""
+
+    def isRunning(self):  # pylint: disable=invalid-name  # Qt API
+        """The fake never runs a thread."""
+        return False
+
 
 class ShippingCoordinatorTests(unittest.TestCase):
     """Tests for extracted shipping tab presentation and workflow helpers."""

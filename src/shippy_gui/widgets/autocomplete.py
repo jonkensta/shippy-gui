@@ -7,6 +7,7 @@ import googlemaps  # type: ignore[import-not-found] # pylint: disable=import-err
 from PySide6.QtCore import QStringListModel, Qt, QThread, QTimer, Signal  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 from PySide6.QtWidgets import QCompleter, QLineEdit  # type: ignore[import-untyped] # pylint: disable=no-name-in-module
 
+from shippy_gui.core.constants import LOOKUP_SHUTDOWN_WAIT_MS
 from shippy_gui.core.models import AutocompletePrediction
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 class GoogleMapsLookupWorker(QThread):  # pylint: disable=too-few-public-methods
     """Worker thread for Google Maps API calls."""
 
-    results_ready = Signal(int, list)  # (request_id, list of predictions)
+    results_ready = Signal(int, str, list)  # (request_id, search text, predictions)
     error_occurred = Signal(int, str)  # (request_id, error message)
 
     def __init__(self, gmaps: googlemaps.Client, search_text: str, request_id: int):
@@ -39,7 +40,7 @@ class GoogleMapsLookupWorker(QThread):  # pylint: disable=too-few-public-methods
                 )
                 for prediction in places_autocomplete
             ]
-            self.results_ready.emit(self.request_id, predictions)
+            self.results_ready.emit(self.request_id, self.search_text, predictions)
         except (
             googlemaps.exceptions.ApiError,
             googlemaps.exceptions.Timeout,
@@ -69,6 +70,10 @@ class GoogleMapsCompleter(
         self.cache: dict[str, list[AutocompletePrediction]] = {}
         self.current_predictions: list[AutocompletePrediction] = []
         self.current_worker = None
+        # Every started worker is held here until it finishes. Dropping the
+        # last reference to a running QThread destroys it mid-run, which Qt
+        # turns into a fatal abort, not a catchable exception.
+        self._active_workers: set[GoogleMapsLookupWorker] = set()
         self.current_text = ""
         self.next_request_id = 0
         self.current_request_id = -1
@@ -123,30 +128,45 @@ class GoogleMapsCompleter(
         self.next_request_id += 1
         self.current_request_id = request_id
 
-        # Note: Don't terminate existing worker - let it finish and ignore stale results
-        # This is safer than terminate() which can cause crashes
+        # Don't terminate the existing worker - terminate() can corrupt state.
+        # It is left to finish and its stale results are ignored, so it must
+        # stay referenced until then; see _active_workers.
+        worker = GoogleMapsLookupWorker(self.gmaps, text, request_id)
+        # A bound slot, not a lambda: Qt drops the connection if this
+        # completer is destroyed first (e.g. replaced after a settings save),
+        # so a late result can't touch deleted widgets.
+        worker.results_ready.connect(self._on_results_ready)
+        worker.error_occurred.connect(self._on_error)
+        worker.finished.connect(self._retire_finished_workers)
 
-        # Start new worker thread
-        self.current_worker = GoogleMapsLookupWorker(self.gmaps, text, request_id)
-        self.current_worker.results_ready.connect(
-            lambda req_id, predictions: self._on_results_ready(
-                text, req_id, predictions
-            )
-        )
-        self.current_worker.error_occurred.connect(self._on_error)
-        self.current_worker.start()
+        self._active_workers.add(worker)
+        self.current_worker = worker
+        worker.start()
+
+    def _retire_finished_workers(self) -> None:
+        """Release workers that have finished running."""
+        for worker in {w for w in self._active_workers if w.isFinished()}:
+            self._active_workers.discard(worker)
+            worker.deleteLater()
+
+    def wait_for_workers(self, timeout_ms: int = LOOKUP_SHUTDOWN_WAIT_MS) -> None:
+        """Block until in-flight lookups finish, so shutdown does not abort."""
+        for worker in list(self._active_workers):
+            if worker.isRunning():
+                worker.wait(timeout_ms)
+        self._retire_finished_workers()
 
     def _on_results_ready(
         self,
-        text: str,
         request_id: int,
+        text: str,
         predictions: list[AutocompletePrediction],
     ):
         """Handle results from worker thread.
 
         Args:
-            text: The search text these predictions are for
             request_id: Request ID that generated these results
+            text: The search text these predictions are for
             predictions: List of address predictions
         """
         # Ignore stale results from old requests

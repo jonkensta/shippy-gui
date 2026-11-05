@@ -199,12 +199,26 @@ class ShippingTab(QWidget):
         )
         self.shipment_controls.create_requested.connect(self.shipment_flow.create_label)
 
+    def wait_for_background_work(self) -> None:
+        """Let in-flight threads finish before the tab goes away.
+
+        Destroying a running QThread aborts the process, and for a shipment
+        that could strand postage between purchase and printing or refund.
+        """
+        if self.shipment_flow is not None:
+            self.shipment_flow.wait_for_worker()
+        if self.address_completer is not None:
+            self.address_completer.wait_for_workers()
+
     def _setup_autocomplete(self):
         """Set up Google Maps autocomplete on address search field."""
         if not self.gmaps or not self.address_search_input or not self.address_lookup:
             return
 
         if self.address_completer:
+            # The old completer is dropped below; its lookups must not be
+            # destroyed while still running.
+            self.address_completer.wait_for_workers()
             try:
                 self.address_search_input.textChanged.disconnect(
                     self.address_completer.update_completions

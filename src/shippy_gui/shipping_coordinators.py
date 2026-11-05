@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped] # pylint: disabl
 
 from shippy_gui.core import label_journal
 from shippy_gui.core.addresses import AddressParser
-from shippy_gui.core.constants import STATUS_COLORS
+from shippy_gui.core.constants import SHIPMENT_SHUTDOWN_WAIT_MS, STATUS_COLORS
 from shippy_gui.core.models import AutocompletePrediction, Config, RecipientAddress
 from shippy_gui.core.rates import RateSummary
 from shippy_gui.core.services import ShipmentService
@@ -478,5 +478,23 @@ class ShipmentFlowCoordinator:  # pylint: disable=too-many-instance-attributes
     def _on_shipment_finished(self) -> None:
         """Handle worker thread completion."""
         self._shipment_controls.set_enabled(True)
+        if self.worker is not None:
+            # Hand the finished thread to Qt rather than dropping it outright.
+            self.worker.deleteLater()
         self.worker = None
         self._on_shipment_done()
+
+    def wait_for_worker(self, timeout_ms: int = SHIPMENT_SHUTDOWN_WAIT_MS) -> bool:
+        """Block until any in-flight shipment finishes.
+
+        Called on shutdown. A worker destroyed mid-run aborts the process,
+        which could strand postage between purchase and printing or refund.
+
+        Returns:
+            True if no worker is still running afterwards.
+        """
+        worker = self.worker
+        if worker is None or not worker.isRunning():
+            return True
+        worker.wait(timeout_ms)
+        return not worker.isRunning()
